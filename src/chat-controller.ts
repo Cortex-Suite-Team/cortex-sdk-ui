@@ -1,0 +1,202 @@
+import {
+  createChatError,
+  errorFromUnknown,
+} from './errors.js';
+import { createEscalationController } from './escalation-controller.js';
+import { createTranscriptStore } from './transcript-store.js';
+import type {
+  ChatController,
+  ChatControllerEvent,
+  ChatControllerOptions,
+  ChatErrorViewModel,
+  ChatState,
+  EscalationReplyContent,
+} from './types.js';
+import {
+  TERMINAL_SESSION_STATES,
+  asPayload,
+  cloneEscalation,
+  cloneMessage,
+} from './utils.js';
+
+export function createChatController(options: ChatControllerOptions): ChatController {
+  const listeners = new Set<(state: ChatState) => void>();
+  const transcriptStore = createTranscriptStore();
+  let unsubscribeFromClient = options.client.onMessage(handleMessage);
+  let lastError: ChatErrorViewModel | null = null;
+
+  const escalationController = createEscalationController({
+    client: options.client,
+    replyRequestBuilder: options.replyRequestBuilder,
+    onEvent: (event) => {
+      if (event.type === 'error') {
+        lastError = event.error;
+      }
+      emit(event);
+      emitStateChanged();
+    },
+  });
+
+  function getChannelState(): string {
+    return options.client.channelState ?? 'CLOSED';
+  }
+
+  function getSessionState(): string {
+    return options.client.sessionState ?? 'CREATED';
+  }
+
+  function defaultInputLockPolicy() {
+    const sessionState = getSessionState();
+    const escalation = escalationController.getState();
+
+    if (TERMINAL_SESSION_STATES.has(sessionState)) {
+      return {
+        locked: true,
+        reason: `session_${sessionState.toLowerCase()}`,
+      };
+    }
+
+    if (options.mode !== 'operator' && escalation?.status === 'pending') {
+      return {
+        locked: true,
+        reason: 'pending_escalation',
+      };
+    }
+
+    return { locked: false };
+  }
+
+  function computeState(): ChatState {
+    const channelState = getChannelState();
+    const sessionState = getSessionState();
+    const escalation = escalationController.getState();
+    const input = options.inputLockPolicy
+      ? options.inputLockPolicy({
+          mode: options.mode ?? 'end_user',
+          channelState,
+          sessionState,
+          escalation,
+        })
+      : defaultInputLockPolicy();
+
+    return {
+      connection: {
+        channelState,
+        sessionState,
+        isConnected: channelState === 'OPEN',
+        isStale: channelState === 'STALE' || channelState === 'RECONNECTING',
+      },
+      transcript: transcriptStore.getSnapshot().map((message) => cloneMessage(message)),
+      input,
+      escalation: cloneEscalation(escalation),
+      lastError,
+    };
+  }
+
+  function emit(event: ChatControllerEvent) {
+    options.onEvent?.(event);
+  }
+
+  function emitStateChanged() {
+    const state = computeState();
+    for (const listener of Array.from(listeners)) {
+      listener(state);
+    }
+    options.onStateChange?.(state);
+    emit({ type: 'state_changed', state });
+  }
+
+  function setError(error: ChatErrorViewModel) {
+    lastError = error;
+    emit({ type: 'error', error });
+  }
+
+  function handleMessage(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never) {
+    const result = transcriptStore.ingest(message);
+    if (result.mutation) {
+      emit({
+        type: result.mutation.type,
+        message: cloneMessage(result.mutation.message),
+      });
+    }
+    if (result.error) {
+      lastError = result.error;
+      emit({ type: 'error', error: result.error });
+    }
+
+    const escalation = escalationController.ingest(message);
+    if (message.type === 'escalation::request' && escalation) {
+      emit({ type: 'escalation_opened', escalation: cloneEscalation(escalation)! });
+    }
+
+    if (message.type === 'system::error') {
+      const payload = asPayload(message);
+      lastError = createChatError(
+        typeof payload['code'] === 'string' ? payload['code'] : 'system_error',
+        typeof payload['message'] === 'string' ? payload['message'] : 'Runtime error',
+        'system::error',
+      );
+    }
+
+    emitStateChanged();
+  }
+
+  async function runAction(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (error) {
+      if (!(error instanceof Error)) {
+        setError(errorFromUnknown(error));
+      }
+      throw error;
+    }
+  }
+
+  return {
+    getState() {
+      return computeState();
+    },
+
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+
+    async connect() {
+      await options.client.connect();
+      emitStateChanged();
+    },
+
+    async disconnect() {
+      if (options.client.disconnect) {
+        await options.client.disconnect();
+      }
+      emitStateChanged();
+    },
+
+    async sendMessage(message) {
+      await options.client.sendMessage(message);
+      emitStateChanged();
+    },
+
+    async replyToUser(content: EscalationReplyContent) {
+      await runAction(() => escalationController.replyToUser(content));
+    },
+
+    async returnToWorker(content: EscalationReplyContent) {
+      await runAction(() => escalationController.returnToWorker(content));
+    },
+
+    async continueWorker(content?: EscalationReplyContent) {
+      await runAction(() => escalationController.continueWorker(content));
+    },
+
+    destroy() {
+      unsubscribeFromClient();
+      unsubscribeFromClient = () => {};
+      listeners.clear();
+    },
+  };
+}

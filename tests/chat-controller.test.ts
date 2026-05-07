@@ -5,6 +5,14 @@ import {
 import { createMessage, createMockClient } from './helpers.js';
 
 describe('sdk-ui controllers', () => {
+  it('controller creation does not subscribe immediately', () => {
+    const client = createMockClient();
+    createChatController({ client });
+
+    expect(client.subscriptionCalls).toBe(0);
+    expect(client.activeListenerCount()).toBe(0);
+  });
+
   it('connect delegates to client', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
@@ -12,6 +20,43 @@ describe('sdk-ui controllers', () => {
     await controller.connect();
 
     expect(client.connectCalls).toBe(1);
+    expect(client.subscriptionCalls).toBe(1);
+    expect(client.activeListenerCount()).toBe(1);
+  });
+
+  it('repeated connect or sendMessage does not duplicate subscription', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.connect();
+    await controller.sendMessage({ content: 'Hello' });
+
+    expect(client.subscriptionCalls).toBe(1);
+    expect(client.activeListenerCount()).toBe(1);
+  });
+
+  it('disconnect unsubscribes from client', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.disconnect();
+
+    expect(client.activeListenerCount()).toBe(0);
+    expect(client.unsubscriptionCalls).toBe(1);
+  });
+
+  it('destroy is idempotent', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    controller.destroy();
+    controller.destroy();
+
+    expect(client.activeListenerCount()).toBe(0);
+    expect(client.unsubscriptionCalls).toBe(1);
   });
 
   it('sendMessage delegates without optimistic transcript mutation', async () => {
@@ -24,7 +69,7 @@ describe('sdk-ui controllers', () => {
     expect(controller.getState().transcript).toEqual([]);
   });
 
-  it('creates escalation state from escalation::request', () => {
+  it('creates escalation state from escalation::request', async () => {
     const client = createMockClient();
     const events: string[] = [];
     const controller = createChatController({
@@ -32,6 +77,7 @@ describe('sdk-ui controllers', () => {
       onEvent: (event) => events.push(event.type),
     });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_1',
       content: 'Need approval',
@@ -59,6 +105,7 @@ describe('sdk-ui controllers', () => {
       },
     });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_1',
       content: 'Need approval',
@@ -78,6 +125,7 @@ describe('sdk-ui controllers', () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_1',
       content: 'Need approval',
@@ -100,6 +148,7 @@ describe('sdk-ui controllers', () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_2',
       content: 'Need approval',
@@ -122,6 +171,7 @@ describe('sdk-ui controllers', () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_3',
       content: 'Need approval',
@@ -151,6 +201,7 @@ describe('sdk-ui controllers', () => {
       },
     });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_4',
       content: 'Need approval',
@@ -169,6 +220,7 @@ describe('sdk-ui controllers', () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
+    await controller.connect();
     client.emit(createMessage('escalation::request', {
       escalation_id: 'esc_5',
       content: 'Need approval',
@@ -190,6 +242,7 @@ describe('sdk-ui controllers', () => {
       }),
     });
 
+    await overrideController.connect();
     overrideClient.emit(createMessage('escalation::request', {
       escalation_id: 'esc_6',
       content: 'Need approval',
@@ -216,7 +269,7 @@ describe('sdk-ui controllers', () => {
     });
   });
 
-  it('fires state change callback and message events', () => {
+  it('fires state change callback and message events', async () => {
     const client = createMockClient();
     const states: number[] = [];
     const events: string[] = [];
@@ -230,6 +283,7 @@ describe('sdk-ui controllers', () => {
       },
     });
 
+    await controller.connect();
     client.emit(createMessage('chat::message', {
       content: 'Hello',
       role: 'user',

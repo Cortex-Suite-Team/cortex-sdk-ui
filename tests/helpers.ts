@@ -14,6 +14,9 @@ export interface MockClient extends CortexClientLike {
   channelState: string;
   connectCalls: number;
   disconnectCalls: number;
+  subscriptionCalls: number;
+  unsubscriptionCalls: number;
+  activeListenerCount(): number;
 }
 
 export function createMockClient(overrides: {
@@ -32,6 +35,8 @@ export function createMockClient(overrides: {
     channelState: 'OPEN',
     connectCalls: 0,
     disconnectCalls: 0,
+    subscriptionCalls: 0,
+    unsubscriptionCalls: 0,
 
     async connect() {
       client.connectCalls += 1;
@@ -57,9 +62,12 @@ export function createMockClient(overrides: {
     },
 
     onMessage(handler) {
+      client.subscriptionCalls += 1;
       listeners.add(handler);
       return () => {
-        listeners.delete(handler);
+        if (listeners.delete(handler)) {
+          client.unsubscriptionCalls += 1;
+        }
       };
     },
 
@@ -68,6 +76,10 @@ export function createMockClient(overrides: {
       for (const listener of Array.from(listeners)) {
         listener(message);
       }
+    },
+
+    activeListenerCount() {
+      return listeners.size;
     },
   };
 

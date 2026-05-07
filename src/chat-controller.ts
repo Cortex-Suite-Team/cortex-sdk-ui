@@ -22,7 +22,8 @@ import {
 export function createChatController(options: ChatControllerOptions): ChatController {
   const listeners = new Set<(state: ChatState) => void>();
   const transcriptStore = createTranscriptStore();
-  let unsubscribeFromClient = options.client.onMessage(handleMessage);
+  let unsubscribeFromClient: (() => void) | null = null;
+  let destroyed = false;
   let lastError: ChatErrorViewModel | null = null;
 
   const escalationController = createEscalationController({
@@ -111,6 +112,21 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     emit({ type: 'error', error });
   }
 
+  function ensureClientSubscription() {
+    if (destroyed || unsubscribeFromClient) {
+      return;
+    }
+    unsubscribeFromClient = options.client.onMessage(handleMessage);
+  }
+
+  function teardownClientSubscription() {
+    if (!unsubscribeFromClient) {
+      return;
+    }
+    unsubscribeFromClient();
+    unsubscribeFromClient = null;
+  }
+
   function handleMessage(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never) {
     const result = transcriptStore.ingest(message);
     if (result.mutation) {
@@ -165,6 +181,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     },
 
     async connect() {
+      ensureClientSubscription();
       await options.client.connect();
       emitStateChanged();
     },
@@ -173,29 +190,37 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       if (options.client.disconnect) {
         await options.client.disconnect();
       }
+      teardownClientSubscription();
       emitStateChanged();
     },
 
     async sendMessage(message) {
+      ensureClientSubscription();
       await options.client.sendMessage(message);
       emitStateChanged();
     },
 
     async replyToUser(content: EscalationReplyContent) {
+      ensureClientSubscription();
       await runAction(() => escalationController.replyToUser(content));
     },
 
     async returnToWorker(content: EscalationReplyContent) {
+      ensureClientSubscription();
       await runAction(() => escalationController.returnToWorker(content));
     },
 
     async continueWorker(content?: EscalationReplyContent) {
+      ensureClientSubscription();
       await runAction(() => escalationController.continueWorker(content));
     },
 
     destroy() {
-      unsubscribeFromClient();
-      unsubscribeFromClient = () => {};
+      if (destroyed) {
+        return;
+      }
+      destroyed = true;
+      teardownClientSubscription();
       listeners.clear();
     },
   };

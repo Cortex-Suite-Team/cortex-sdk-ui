@@ -12,6 +12,12 @@ import {
   toEscalationActions,
 } from './utils.js';
 
+function buildAttachmentMeta(payload: Record<string, unknown>): Record<string, unknown> {
+  return Array.isArray(payload['attachments'])
+    ? { attachments: payload['attachments'] }
+    : {};
+}
+
 export function normalizeCortexMessage(message: CortexTransportMessage): ChatMessageViewModel {
   const payload = asPayload(message);
   const payloadMeta = isRecord(payload['meta']) ? payload['meta'] : undefined;
@@ -30,7 +36,10 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'],
         status: 'final',
         ts: message.ts ?? null,
-        meta: mergedMeta,
+        meta: {
+          ...mergedMeta,
+          ...buildAttachmentMeta(payload),
+        },
       };
 
     case 'chat::partial':
@@ -44,6 +53,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         ts: message.ts ?? null,
         meta: {
           ...mergedMeta,
+          ...buildAttachmentMeta(payload),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
         },
       };
@@ -59,6 +69,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         ts: message.ts ?? null,
         meta: {
           ...mergedMeta,
+          ...buildAttachmentMeta(payload),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
           ...(asNonEmptyString(payload['answer_kind']) ? { answerKind: asNonEmptyString(payload['answer_kind']) } : {}),
         },

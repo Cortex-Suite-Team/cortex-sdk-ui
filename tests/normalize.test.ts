@@ -25,4 +25,28 @@ describe('normalizeCortexMessage', () => {
     expect(normalized.role).toBe('system');
     expect(normalized.content).toEqual({ foo: 'bar' });
   });
+
+  it('preserves attachments for chat::answer', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Here is your file.',
+      role: 'assistant',
+      answer_kind: 'final',
+      turn_id: 'turn_1',
+      attachments: [{
+        file_id: 'file_1',
+        filename: 'report.pdf',
+        download_url: 'https://example.test/download/report.pdf',
+      }],
+    }));
+
+    expect(normalized.meta).toMatchObject({
+      turnId: 'turn_1',
+      answerKind: 'final',
+      attachments: [{
+        file_id: 'file_1',
+        filename: 'report.pdf',
+        download_url: 'https://example.test/download/report.pdf',
+      }],
+    });
+  });
 });

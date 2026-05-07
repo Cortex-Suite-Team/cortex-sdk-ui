@@ -53,4 +53,22 @@ describe('createTranscriptStore', () => {
     expect(result.mutation?.message.role).toBe('error');
     expect(store.getSnapshot()).toHaveLength(1);
   });
+
+  it('preserves payload.attachments in chat::message meta', () => {
+    const store = createTranscriptStore();
+
+    const result = store.ingest(createMessage('chat::message', {
+      content: '',
+      role: 'user',
+      attachments: ['mock_file_1_report.xlsx'],
+    }));
+
+    expect(result.mutation?.type).toBe('message_added');
+    expect(result.mutation?.message.meta).toMatchObject({
+      attachments: ['mock_file_1_report.xlsx'],
+    });
+    expect(store.getSnapshot()[0]?.meta).toMatchObject({
+      attachments: ['mock_file_1_report.xlsx'],
+    });
+  });
 });

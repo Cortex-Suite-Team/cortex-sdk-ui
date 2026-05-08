@@ -126,6 +126,21 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         },
       };
 
+    case 'chat::question':
+      return {
+        id: buildMessageId(message, 'question'),
+        seq: message.seq ?? null,
+        type: message.type,
+        role: mapRole(payload['role'], 'assistant'),
+        content: payload['content'],
+        status: 'final',
+        ts: message.ts ?? null,
+        meta: {
+          ...mergedMeta,
+          ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
+        },
+      };
+
     case 'sandbox::snapshot':
     case 'sandbox::lifecycle':
       return {

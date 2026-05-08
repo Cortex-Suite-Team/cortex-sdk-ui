@@ -11,12 +11,16 @@ import type {
   ChatErrorViewModel,
   ChatState,
   EscalationReplyContent,
+  QuestionOption,
+  QuestionState,
 } from './types.js';
 import {
   TERMINAL_SESSION_STATES,
+  asNonEmptyString,
   asPayload,
   cloneEscalation,
   cloneMessage,
+  isRecord,
 } from './utils.js';
 
 export function createChatController(options: ChatControllerOptions): ChatController {
@@ -25,6 +29,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let unsubscribeFromClient: (() => void) | null = null;
   let destroyed = false;
   let lastError: ChatErrorViewModel | null = null;
+  let activeQuestion: QuestionState | null = null;
 
   const escalationController = createEscalationController({
     client: options.client,
@@ -91,6 +96,9 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       input,
       escalation: cloneEscalation(escalation),
       lastError,
+      activeQuestion: activeQuestion
+        ? { ...activeQuestion, options: [...activeQuestion.options] }
+        : null,
     };
   }
 
@@ -145,6 +153,29 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emit({ type: 'escalation_opened', escalation: cloneEscalation(escalation)! });
     }
 
+    if (message.type === 'chat::question') {
+      const payload = asPayload(message);
+      const meta = isRecord(payload['meta']) ? payload['meta'] : null;
+      const questionId = meta ? asNonEmptyString(meta['question_id']) : null;
+      if (questionId) {
+        const rawOptions = Array.isArray(meta?.['options']) ? meta['options'] as unknown[] : [];
+        activeQuestion = {
+          question_id: questionId,
+          input_type: asNonEmptyString(meta?.['input_type']) ?? 'radio',
+          allow_reply: meta?.['allow_reply'] === true,
+          options: (rawOptions as unknown[])
+            .filter((o): o is Record<string, unknown> => isRecord(o))
+            .map((o): QuestionOption => ({ id: String(o['id'] ?? ''), label: String(o['label'] ?? '') }))
+            .filter((o) => o.id !== '' && o.label !== ''),
+          turn_id: asNonEmptyString(payload['turn_id']) ?? null,
+        };
+      }
+    }
+
+    if (message.type === 'chat::answer' || message.type === 'system::error') {
+      activeQuestion = null;
+    }
+
     if (message.type === 'system::error') {
       const payload = asPayload(message);
       lastError = createChatError(
@@ -194,7 +225,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
     },
 
-    async sendMessage(message) {
+    async sendMessage(message: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }) {
       ensureClientSubscription();
       await options.client.sendMessage(message);
       emitStateChanged();

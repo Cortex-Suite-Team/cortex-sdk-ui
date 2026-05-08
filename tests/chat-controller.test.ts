@@ -258,6 +258,134 @@ describe('sdk-ui controllers', () => {
     }]);
   });
 
+  it('sets activeQuestion when chat::question is received', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Choose one',
+      turn_id: 'turn_q1',
+      meta: {
+        question_id: 'q_1',
+        input_type: 'radio',
+        allow_reply: true,
+        options: [
+          { id: 'a', label: 'Option A' },
+          { id: 'b', label: 'Option B' },
+        ],
+      },
+    }));
+
+    expect(controller.getState().activeQuestion).toMatchObject({
+      question_id: 'q_1',
+      input_type: 'radio',
+      allow_reply: true,
+      options: [
+        { id: 'a', label: 'Option A' },
+        { id: 'b', label: 'Option B' },
+      ],
+    });
+    expect(controller.getState().transcript).toHaveLength(1);
+    expect(controller.getState().transcript[0].type).toBe('chat::question');
+  });
+
+  it('clears activeQuestion on chat::answer', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Choose one',
+      meta: {
+        question_id: 'q_2',
+        input_type: 'radio',
+        allow_reply: false,
+        options: [{ id: 'a', label: 'Option A' }],
+      },
+    }, 1));
+
+    expect(controller.getState().activeQuestion?.question_id).toBe('q_2');
+
+    client.emit(createMessage('chat::answer', {
+      role: 'assistant',
+      content: 'Done',
+      turn_id: 'turn_a1',
+      answer_kind: 'final',
+    }, 2));
+
+    expect(controller.getState().activeQuestion).toBeNull();
+  });
+
+  it('clears activeQuestion on system::error', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Choose one',
+      meta: {
+        question_id: 'q_3',
+        input_type: 'radio',
+        allow_reply: true,
+        options: [{ id: 'a', label: 'Option A' }],
+      },
+    }, 1));
+
+    expect(controller.getState().activeQuestion).not.toBeNull();
+
+    client.emit(createMessage('system::error', {
+      code: 'runtime_error',
+      message: 'Something failed',
+    }, 2));
+
+    expect(controller.getState().activeQuestion).toBeNull();
+  });
+
+  it('filters malformed options from activeQuestion', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Choose',
+      meta: {
+        question_id: 'q_4',
+        input_type: 'radio',
+        allow_reply: false,
+        options: [
+          { id: 'ok', label: 'Valid' },
+          { id: '', label: 'Missing ID' },
+          null,
+          { id: 'no-label' },
+        ],
+      },
+    }, 1));
+
+    const { activeQuestion } = controller.getState();
+    expect(activeQuestion?.options).toHaveLength(1);
+    expect(activeQuestion?.options[0]).toEqual({ id: 'ok', label: 'Valid' });
+  });
+
+  it('sendMessage forwards meta to client', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.sendMessage({
+      content: ['Approve'],
+      meta: { question_id: 'q_1', selected_option: 'approve' },
+    });
+
+    expect(client.sentMessages[0]).toMatchObject({
+      content: ['Approve'],
+      meta: { question_id: 'q_1', selected_option: 'approve' },
+    });
+  });
+
   it('locks input for terminal session state', () => {
     const client = createMockClient();
     client.sessionState = 'FAILED';

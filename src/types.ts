@@ -35,10 +35,23 @@ export interface ReplyEscalationRequest {
   [key: string]: unknown;
 }
 
+export interface QuestionOption {
+  id: string;
+  label: string;
+}
+
+export interface QuestionState {
+  question_id: string;
+  input_type: string;
+  allow_reply: boolean;
+  options: QuestionOption[];
+  turn_id?: string | null;
+}
+
 export interface CortexClientLike {
   connect(): Promise<void>;
   disconnect?(): Promise<void>;
-  sendMessage(options: { content: unknown; attachments?: unknown[] }): Promise<void>;
+  sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<void>;
   replyEscalation?(options: ReplyEscalationRequest): Promise<void>;
   onMessage(handler: (message: CortexTransportMessage) => void): () => void;
   sessionId?: string | null;
@@ -88,6 +101,7 @@ export interface ChatState {
   };
   escalation: EscalationState | null;
   lastError: ChatErrorViewModel | null;
+  activeQuestion: QuestionState | null;
 }
 
 export type ChatControllerEvent =
@@ -161,7 +175,7 @@ export interface ChatController {
   subscribe(listener: (state: ChatState) => void): () => void;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  sendMessage(options: { content: unknown; attachments?: unknown[] }): Promise<void>;
+  sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<void>;
   replyToUser(content: EscalationReplyContent): Promise<void>;
   returnToWorker(content: EscalationReplyContent): Promise<void>;
   continueWorker(content?: EscalationReplyContent): Promise<void>;

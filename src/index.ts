@@ -20,6 +20,8 @@ export type {
   EscalationControllerOptions,
   EscalationReplyContent,
   EscalationState,
+  QuestionOption,
+  QuestionState,
   ReplyEscalationRequest,
   ReplyRequestBuilderArgs,
   TranscriptStore,

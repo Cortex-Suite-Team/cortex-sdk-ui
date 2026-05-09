@@ -9,6 +9,7 @@ import type {
   ChatControllerEvent,
   ChatControllerOptions,
   ChatErrorViewModel,
+  ChatMessageViewModel,
   ChatState,
   EscalationReplyContent,
   QuestionOption,
@@ -24,6 +25,29 @@ import {
   cloneMessage,
   isRecord,
 } from './utils.js';
+
+const MESSAGE_SEND_TIMEOUT_MS = 15_000;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, msg: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(msg)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function generateClientMsgId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
 
 export function createChatController(options: ChatControllerOptions): ChatController {
   const listeners = new Set<(state: ChatState) => void>();
@@ -276,7 +300,78 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
     async sendMessage(message: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }) {
       ensureClientSubscription();
-      await options.client.sendMessage(message);
+      const clientMsgId = generateClientMsgId();
+      const id = `client:${clientMsgId}`;
+
+      const sendPayload = {
+        content: message.content,
+        attachments: message.attachments,
+        meta: {
+          ...(message.meta ?? {}),
+          client_msg_id: clientMsgId,
+        },
+      };
+
+      const optimistic: ChatMessageViewModel = {
+        id,
+        type: 'chat::message',
+        role: 'user',
+        content: message.content,
+        status: 'final',
+        deliveryStatus: 'sending',
+        ts: new Date().toISOString(),
+        clientMsgId,
+        retryable: false,
+        meta: { attachments: message.attachments ?? [] },
+        originalPayload: sendPayload,
+      };
+
+      transcriptStore.upsertLocalMessage(optimistic);
+      emitStateChanged();
+
+      try {
+        await withTimeout(
+          options.client.sendMessage(sendPayload),
+          MESSAGE_SEND_TIMEOUT_MS,
+          'Message was not sent',
+        );
+        transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'sent', retryable: false });
+      } catch (err) {
+        const sendError = err instanceof Error ? err.message : 'Message was not sent';
+        transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'failed', retryable: true, sendError });
+      }
+
+      emitStateChanged();
+    },
+
+    async retryMessage(messageId: string) {
+      const snapshot = transcriptStore.getSnapshot();
+      const msg = snapshot.find(
+        (m) => m.id === messageId && m.role === 'user' && m.retryable === true && m.originalPayload !== undefined,
+      );
+      if (!msg?.originalPayload) return;
+
+      const updated: ChatMessageViewModel = {
+        ...msg,
+        deliveryStatus: 'sending',
+        retryable: false,
+        sendError: undefined,
+      };
+      transcriptStore.upsertLocalMessage(updated);
+      emitStateChanged();
+
+      try {
+        await withTimeout(
+          options.client.sendMessage(msg.originalPayload),
+          MESSAGE_SEND_TIMEOUT_MS,
+          'Message was not sent',
+        );
+        transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'sent', retryable: false });
+      } catch (err) {
+        const sendError = err instanceof Error ? err.message : 'Message was not sent';
+        transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'failed', retryable: true, sendError });
+      }
+
       emitStateChanged();
     },
 

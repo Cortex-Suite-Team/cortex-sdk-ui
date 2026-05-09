@@ -9,6 +9,7 @@ export type {
   ChatControllerEvent,
   ChatControllerOptions,
   ChatErrorViewModel,
+  ChatMessageDeliveryStatus,
   ChatMessageRole,
   ChatMessageStatus,
   ChatMessageViewModel,

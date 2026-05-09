@@ -167,5 +167,13 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
       indexById.clear();
       notify();
     },
+
+    upsertLocalMessage(message: ChatMessageViewModel): TranscriptStoreResult {
+      const existingIndex = indexById.get(message.id);
+      if (existingIndex !== undefined) {
+        return updateMessage(existingIndex, message);
+      }
+      return addMessage(message);
+    },
   };
 }

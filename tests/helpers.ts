@@ -6,7 +6,7 @@ import type {
 
 export interface MockClient extends CortexClientLike {
   emitted: CortexTransportMessage[];
-  sentMessages: Array<{ content: unknown; attachments?: unknown[] }>;
+  sentMessages: Array<{ content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }>;
   escalationReplies: ReplyEscalationRequest[];
   emit(message: CortexTransportMessage): void;
   sessionId: string | null;
@@ -17,14 +17,16 @@ export interface MockClient extends CortexClientLike {
   subscriptionCalls: number;
   unsubscriptionCalls: number;
   activeListenerCount(): number;
+  setSendError(error: Error | null): void;
 }
 
 export function createMockClient(overrides: {
   replyEscalation?: ((options: ReplyEscalationRequest) => Promise<void>) | null;
 } = {}): MockClient {
   const listeners = new Set<(message: CortexTransportMessage) => void>();
-  const sentMessages: Array<{ content: unknown; attachments?: unknown[] }> = [];
+  const sentMessages: Array<{ content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }> = [];
   const escalationReplies: ReplyEscalationRequest[] = [];
+  let sendError: Error | null = null;
 
   const client: MockClient = {
     emitted: [],
@@ -47,7 +49,12 @@ export function createMockClient(overrides: {
     },
 
     async sendMessage(options) {
+      if (sendError) throw sendError;
       sentMessages.push(options);
+    },
+
+    setSendError(error: Error | null) {
+      sendError = error;
     },
 
     async replyEscalation(options) {

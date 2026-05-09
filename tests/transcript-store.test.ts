@@ -71,4 +71,73 @@ describe('createTranscriptStore', () => {
       attachments: ['mock_file_1_report.xlsx'],
     });
   });
+
+  it('upsertLocalMessage adds new message when id not present', () => {
+    const store = createTranscriptStore();
+
+    const msg = {
+      id: 'client:msg_1',
+      type: 'chat::message',
+      role: 'user' as const,
+      content: 'Hello',
+      status: 'final' as const,
+      deliveryStatus: 'sending' as const,
+      ts: new Date().toISOString(),
+    };
+
+    const result = store.upsertLocalMessage(msg);
+
+    expect(result.mutation?.type).toBe('message_added');
+    expect(result.mutation?.message.id).toBe('client:msg_1');
+    expect(result.mutation?.message.deliveryStatus).toBe('sending');
+    expect(store.getSnapshot()).toHaveLength(1);
+  });
+
+  it('upsertLocalMessage updates existing message when id matches', () => {
+    const store = createTranscriptStore();
+
+    const base = {
+      id: 'client:msg_1',
+      type: 'chat::message',
+      role: 'user' as const,
+      content: 'Hello',
+      status: 'final' as const,
+      deliveryStatus: 'sending' as const,
+      ts: new Date().toISOString(),
+    };
+
+    store.upsertLocalMessage(base);
+    const result = store.upsertLocalMessage({ ...base, deliveryStatus: 'sent' as const });
+
+    expect(result.mutation?.type).toBe('message_updated');
+    expect(result.mutation?.message.deliveryStatus).toBe('sent');
+    expect(store.getSnapshot()).toHaveLength(1);
+  });
+
+  it('upsertLocalMessage does not affect server-ingested messages', () => {
+    const store = createTranscriptStore();
+
+    store.ingest(createMessage('chat::answer', {
+      content: 'From server',
+      role: 'assistant',
+      turn_id: 'turn_1',
+    }));
+
+    const localMsg = {
+      id: 'client:msg_local',
+      type: 'chat::message',
+      role: 'user' as const,
+      content: 'Local',
+      status: 'final' as const,
+      deliveryStatus: 'sent' as const,
+      ts: new Date().toISOString(),
+    };
+    store.upsertLocalMessage(localMsg);
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot).toHaveLength(2);
+    const serverMsg = snapshot.find((m) => m.id !== 'client:msg_local');
+    expect(serverMsg?.role).toBe('assistant');
+    expect(serverMsg?.deliveryStatus).toBeUndefined();
+  });
 });

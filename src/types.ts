@@ -8,6 +8,8 @@ export type ChatMessageRole =
 
 export type ChatMessageStatus = 'streaming' | 'final' | 'error';
 
+export type ChatMessageDeliveryStatus = 'sending' | 'sent' | 'failed';
+
 export type EscalationAction =
   | 'continue'
   | 'operator_input'
@@ -68,6 +70,15 @@ export interface ChatMessageViewModel {
   status?: ChatMessageStatus;
   ts?: string | null;
   meta?: Record<string, unknown>;
+  clientMsgId?: string;
+  deliveryStatus?: ChatMessageDeliveryStatus;
+  retryable?: boolean;
+  sendError?: string;
+  originalPayload?: {
+    content: unknown;
+    attachments?: unknown[];
+    meta?: Record<string, unknown>;
+  };
 }
 
 export interface EscalationState {
@@ -170,6 +181,7 @@ export interface TranscriptStore {
   subscribe(listener: (transcript: ChatMessageViewModel[]) => void): () => void;
   ingest(message: CortexTransportMessage): TranscriptStoreResult;
   reset(): void;
+  upsertLocalMessage(message: ChatMessageViewModel): TranscriptStoreResult;
 }
 
 export interface EscalationController {
@@ -187,6 +199,7 @@ export interface ChatController {
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<void>;
+  retryMessage(messageId: string): Promise<void>;
   replyToUser(content: EscalationReplyContent): Promise<void>;
   returnToWorker(content: EscalationReplyContent): Promise<void>;
   continueWorker(content?: EscalationReplyContent): Promise<void>;

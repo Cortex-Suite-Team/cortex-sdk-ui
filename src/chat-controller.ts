@@ -14,6 +14,7 @@ import type {
   EscalationReplyContent,
   QuestionOption,
   QuestionState,
+  SendMessageResult,
   WorkerState,
   WorkerStateName,
 } from './types.js';
@@ -298,7 +299,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
     },
 
-    async sendMessage(message: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }) {
+    async sendMessage(message: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<SendMessageResult> {
       ensureClientSubscription();
       const clientMsgId = generateClientMsgId();
       const id = `client:${clientMsgId}`;
@@ -336,21 +337,24 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           'Message was not sent',
         );
         transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'sent', retryable: false });
+        emitStateChanged();
+        return { ok: true, messageId: id, clientMsgId };
       } catch (err) {
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
         transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'failed', retryable: true, sendError });
+        emitStateChanged();
+        return { ok: false, messageId: id, clientMsgId, error: sendError };
       }
-
-      emitStateChanged();
     },
 
-    async retryMessage(messageId: string) {
+    async retryMessage(messageId: string): Promise<SendMessageResult | null> {
       const snapshot = transcriptStore.getSnapshot();
       const msg = snapshot.find(
         (m) => m.id === messageId && m.role === 'user' && m.retryable === true && m.originalPayload !== undefined,
       );
-      if (!msg?.originalPayload) return;
+      if (!msg?.originalPayload || !msg.clientMsgId) return null;
 
+      const clientMsgId = msg.clientMsgId;
       const updated: ChatMessageViewModel = {
         ...msg,
         deliveryStatus: 'sending',
@@ -367,12 +371,14 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           'Message was not sent',
         );
         transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'sent', retryable: false });
+        emitStateChanged();
+        return { ok: true, messageId, clientMsgId };
       } catch (err) {
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
         transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'failed', retryable: true, sendError });
+        emitStateChanged();
+        return { ok: false, messageId, clientMsgId, error: sendError };
       }
-
-      emitStateChanged();
     },
 
     async replyToUser(content: EscalationReplyContent) {

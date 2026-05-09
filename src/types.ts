@@ -193,13 +193,17 @@ export interface EscalationController {
   continueWorker(content?: EscalationReplyContent): Promise<void>;
 }
 
+export type SendMessageResult =
+  | { ok: true; messageId: string; clientMsgId: string }
+  | { ok: false; messageId: string; clientMsgId: string; error: string };
+
 export interface ChatController {
   getState(): ChatState;
   subscribe(listener: (state: ChatState) => void): () => void;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
-  sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<void>;
-  retryMessage(messageId: string): Promise<void>;
+  sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<SendMessageResult>;
+  retryMessage(messageId: string): Promise<SendMessageResult | null>;
   replyToUser(content: EscalationReplyContent): Promise<void>;
   returnToWorker(content: EscalationReplyContent): Promise<void>;
   continueWorker(content?: EscalationReplyContent): Promise<void>;

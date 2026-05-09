@@ -25,6 +25,7 @@ export type {
   QuestionState,
   ReplyEscalationRequest,
   ReplyRequestBuilderArgs,
+  SendMessageResult,
   TranscriptStore,
   TranscriptStoreOptions,
   TranscriptStoreResult,

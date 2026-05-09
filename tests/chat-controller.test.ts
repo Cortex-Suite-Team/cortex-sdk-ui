@@ -59,7 +59,19 @@ describe('sdk-ui controllers', () => {
     expect(client.unsubscriptionCalls).toBe(1);
   });
 
-  it('sendMessage creates optimistic user message with deliveryStatus sending', async () => {
+  it('sendMessage returns ok=true on successful transport send', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    const result = await controller.sendMessage({ content: 'Hello' });
+
+    expect(result.ok).toBe(true);
+    expect(typeof result.messageId).toBe('string');
+    expect(result.messageId.startsWith('client:')).toBe(true);
+    expect(typeof result.clientMsgId).toBe('string');
+  });
+
+  it('sendMessage creates optimistic user message with deliveryStatus sending then sent', async () => {
     const client = createMockClient();
     const states: ReturnType<typeof controller.getState>[] = [];
     const controller = createChatController({
@@ -90,6 +102,21 @@ describe('sdk-ui controllers', () => {
     expect((sent.meta?.['client_msg_id'] as string).length).toBeGreaterThan(0);
   });
 
+  it('sendMessage returns ok=false on transport failure', async () => {
+    const client = createMockClient();
+    client.setSendError(new Error('WebSocket closed'));
+    const controller = createChatController({ client });
+
+    const result = await controller.sendMessage({ content: 'Hello' });
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toBe('WebSocket closed');
+      expect(typeof result.messageId).toBe('string');
+      expect(typeof result.clientMsgId).toBe('string');
+    }
+  });
+
   it('sendMessage on network failure sets deliveryStatus failed with retryable', async () => {
     const client = createMockClient();
     client.setSendError(new Error('WebSocket closed'));
@@ -104,7 +131,7 @@ describe('sdk-ui controllers', () => {
     expect(transcript[0].sendError).toBe('WebSocket closed');
   });
 
-  it('retryMessage resends originalPayload and sets deliveryStatus sent on success', async () => {
+  it('retryMessage resends originalPayload and returns ok=true on success', async () => {
     const client = createMockClient();
     client.setSendError(new Error('offline'));
     const controller = createChatController({ client });
@@ -115,7 +142,13 @@ describe('sdk-ui controllers', () => {
     expect(client.sentMessages).toHaveLength(0);
 
     client.setSendError(null);
-    await controller.retryMessage(failedId);
+    const retryResult = await controller.retryMessage(failedId);
+
+    expect(retryResult).not.toBeNull();
+    expect(retryResult?.ok).toBe(true);
+    if (retryResult?.ok) {
+      expect(retryResult.messageId).toBe(failedId);
+    }
 
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
@@ -127,7 +160,7 @@ describe('sdk-ui controllers', () => {
     expect(client.sentMessages[0].content).toBe('Retry me');
   });
 
-  it('retryMessage on failure keeps deliveryStatus failed', async () => {
+  it('retryMessage on failure returns ok=false and keeps deliveryStatus failed', async () => {
     const client = createMockClient();
     client.setSendError(new Error('offline'));
     const controller = createChatController({ client });
@@ -135,13 +168,14 @@ describe('sdk-ui controllers', () => {
     await controller.sendMessage({ content: 'Broken' });
     const failedId = controller.getState().transcript[0].id;
 
-    await controller.retryMessage(failedId);
+    const retryResult = await controller.retryMessage(failedId);
 
+    expect(retryResult?.ok).toBe(false);
     expect(controller.getState().transcript[0].deliveryStatus).toBe('failed');
     expect(controller.getState().transcript[0].retryable).toBe(true);
   });
 
-  it('retryMessage does nothing for non-retryable messages', async () => {
+  it('retryMessage returns null for non-retryable messages and does not send', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
@@ -149,9 +183,25 @@ describe('sdk-ui controllers', () => {
     const msgId = controller.getState().transcript[0].id;
     const sendCountBefore = client.sentMessages.length;
 
-    await controller.retryMessage(msgId);
+    const retryResult = await controller.retryMessage(msgId);
 
+    expect(retryResult).toBeNull();
     expect(client.sentMessages.length).toBe(sendCountBefore);
+  });
+
+  it('retryMessage does not create a new bubble', async () => {
+    const client = createMockClient();
+    client.setSendError(new Error('offline'));
+    const controller = createChatController({ client });
+
+    await controller.sendMessage({ content: 'Once' });
+    const failedId = controller.getState().transcript[0].id;
+
+    client.setSendError(null);
+    await controller.retryMessage(failedId);
+
+    expect(controller.getState().transcript).toHaveLength(1);
+    expect(controller.getState().transcript[0].id).toBe(failedId);
   });
 
   it('system::state event does not change user message deliveryStatus', async () => {

@@ -87,6 +87,16 @@ export interface ChatErrorViewModel {
   details?: Record<string, unknown>;
 }
 
+export type WorkerStateName = 'idle' | 'working' | 'waiting' | 'error';
+
+export interface WorkerState {
+  state: WorkerStateName;
+  label?: string;
+  expiresAt?: number;
+  canRetry?: boolean;
+  correlation_id?: string;
+}
+
 export interface ChatState {
   connection: {
     channelState: string;
@@ -102,6 +112,7 @@ export interface ChatState {
   escalation: EscalationState | null;
   lastError: ChatErrorViewModel | null;
   activeQuestion: QuestionState | null;
+  workerState: WorkerState;
 }
 
 export type ChatControllerEvent =

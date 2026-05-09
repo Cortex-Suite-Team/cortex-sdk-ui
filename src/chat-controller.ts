@@ -13,6 +13,8 @@ import type {
   EscalationReplyContent,
   QuestionOption,
   QuestionState,
+  WorkerState,
+  WorkerStateName,
 } from './types.js';
 import {
   TERMINAL_SESSION_STATES,
@@ -30,6 +32,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let destroyed = false;
   let lastError: ChatErrorViewModel | null = null;
   let activeQuestion: QuestionState | null = null;
+  let workerState: WorkerState = { state: 'idle' };
+  let workerStateTtlTimer: ReturnType<typeof setTimeout> | null = null;
 
   const escalationController = createEscalationController({
     client: options.client,
@@ -99,6 +103,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       activeQuestion: activeQuestion
         ? { ...activeQuestion, options: [...activeQuestion.options] }
         : null,
+      workerState: { ...workerState },
     };
   }
 
@@ -120,6 +125,35 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     emit({ type: 'error', error });
   }
 
+  function clearWorkerStateTtl(): void {
+    if (workerStateTtlTimer !== null) {
+      clearTimeout(workerStateTtlTimer);
+      workerStateTtlTimer = null;
+    }
+  }
+
+  function applyWorkerState(next: WorkerState): void {
+    clearWorkerStateTtl();
+    workerState = next;
+    if (next.expiresAt !== undefined) {
+      const remaining = next.expiresAt - Date.now();
+      if (remaining <= 0) {
+        workerState = { state: 'idle' };
+        return;
+      }
+      workerStateTtlTimer = setTimeout(() => {
+        workerState = { state: 'idle' };
+        workerStateTtlTimer = null;
+        emitStateChanged();
+      }, remaining);
+    }
+  }
+
+  function resetWorkerStateToIdle(): void {
+    clearWorkerStateTtl();
+    workerState = { state: 'idle' };
+  }
+
   function ensureClientSubscription() {
     if (destroyed || unsubscribeFromClient) {
       return;
@@ -136,6 +170,19 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   }
 
   function handleMessage(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never) {
+    if (message.type === 'system::state') {
+      const payload = asPayload(message);
+      const meta = isRecord(payload['meta']) ? payload['meta'] : null;
+      const stateName = (asNonEmptyString(meta?.['state']) ?? 'idle') as WorkerStateName;
+      const label = asNonEmptyString(meta?.['label']) ?? undefined;
+      const ttlMs = typeof meta?.['ttl_ms'] === 'number' ? (meta['ttl_ms'] as number) : undefined;
+      const correlationId = asNonEmptyString(meta?.['correlation_id']) ?? undefined;
+      const expiresAt = ttlMs !== undefined ? Date.now() + ttlMs : undefined;
+      applyWorkerState({ state: stateName, label, expiresAt, correlation_id: correlationId });
+      emitStateChanged();
+      return;
+    }
+
     const result = transcriptStore.ingest(message);
     if (result.mutation) {
       emit({
@@ -154,6 +201,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     }
 
     if (message.type === 'chat::question') {
+      resetWorkerStateToIdle();
       const payload = asPayload(message);
       const meta = isRecord(payload['meta']) ? payload['meta'] : null;
       const questionId = meta ? asNonEmptyString(meta['question_id']) : null;
@@ -174,6 +222,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
     if (message.type === 'chat::answer' || message.type === 'system::error') {
       activeQuestion = null;
+      resetWorkerStateToIdle();
     }
 
     if (message.type === 'system::error') {
@@ -251,6 +300,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         return;
       }
       destroyed = true;
+      clearWorkerStateTtl();
       teardownClientSubscription();
       listeners.clear();
     },

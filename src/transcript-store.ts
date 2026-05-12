@@ -47,7 +47,11 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
   }
 
   function updateMessage(index: number, message: ChatMessageViewModel): TranscriptStoreResult {
+    const previous = transcript[index];
     transcript[index] = message;
+    if (previous && previous.id !== message.id) {
+      indexById.delete(previous.id);
+    }
     indexById.set(message.id, index);
     notify();
     return {
@@ -56,6 +60,45 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
         type: 'message_updated',
         message: cloneMessage(message),
       },
+    };
+  }
+
+  function findMessageIndexByClientMsgId(clientMsgId: string | undefined): number | undefined {
+    if (!clientMsgId) {
+      return undefined;
+    }
+    for (const [index, message] of transcript.entries()) {
+      if (message.clientMsgId === clientMsgId) {
+        return index;
+      }
+    }
+    return undefined;
+  }
+
+  function reconcileOptimisticUserMessage(
+    existing: ChatMessageViewModel,
+    normalized: ChatMessageViewModel,
+  ): ChatMessageViewModel {
+    const nextMeta: Record<string, unknown> = {
+      ...(normalized.meta ?? {}),
+    };
+
+    if (normalized.ts) {
+      nextMeta['timestamp_source'] = 'server';
+    } else if (existing.meta?.['timestamp_source'] !== undefined) {
+      nextMeta['timestamp_source'] = existing.meta['timestamp_source'];
+    }
+
+    return {
+      ...normalized,
+      id: normalized.id,
+      clientMsgId: normalized.clientMsgId ?? existing.clientMsgId,
+      deliveryStatus: 'sent',
+      retryable: false,
+      sendError: undefined,
+      originalPayload: existing.originalPayload,
+      ts: normalized.ts ?? existing.ts ?? null,
+      meta: nextMeta,
     };
   }
 
@@ -116,6 +159,9 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       const normalized = normalizeCortexMessage(message);
       const existingIndex = indexById.get(normalized.id);
+      const optimisticIndex = message.type === 'chat::message' && normalized.role === 'user'
+        ? findMessageIndexByClientMsgId(normalized.clientMsgId)
+        : undefined;
 
       if (message.type === 'chat::partial' && existingIndex !== undefined) {
         const existing = transcript[existingIndex];
@@ -157,6 +203,11 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       if (existingIndex !== undefined) {
         return updateMessage(existingIndex, normalized);
+      }
+
+      if (optimisticIndex !== undefined) {
+        const existing = transcript[optimisticIndex];
+        return updateMessage(optimisticIndex, reconcileOptimisticUserMessage(existing, normalized));
       }
 
       return addMessage(normalized);

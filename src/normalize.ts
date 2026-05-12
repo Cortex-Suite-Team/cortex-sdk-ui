@@ -18,6 +18,10 @@ function buildAttachmentMeta(payload: Record<string, unknown>): Record<string, u
     : {};
 }
 
+function getClientMsgId(meta: Record<string, unknown>): string | undefined {
+  return asNonEmptyString(meta['client_msg_id']) ?? undefined;
+}
+
 export function normalizeCortexMessage(message: CortexTransportMessage): ChatMessageViewModel {
   const payload = asPayload(message);
   const payloadMeta = isRecord(payload['meta']) ? payload['meta'] : undefined;
@@ -28,6 +32,12 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
 
   switch (message.type) {
     case 'chat::message':
+      if (mapRole(payload['role'], 'user') === 'user' && getClientMsgId(mergedMeta) && !message.ts) {
+        console.warn('[sdk-ui] user chat::message echo arrived without server timestamp', {
+          client_msg_id: getClientMsgId(mergedMeta),
+          seq: message.seq ?? null,
+        });
+      }
       return {
         id: buildMessageId(message),
         seq: message.seq ?? null,
@@ -36,6 +46,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'],
         status: 'final',
         ts: message.ts ?? null,
+        clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
           ...buildAttachmentMeta(payload),

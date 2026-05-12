@@ -50,6 +50,32 @@ function generateClientMsgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+function getSessionCorrespondent(client: ChatControllerOptions['client']): ChatState['session']['correspondent'] {
+  const rawMeta = client.sessionMeta;
+  if (!isRecord(rawMeta)) {
+    return null;
+  }
+
+  const rawCorrespondent = rawMeta['chat_correspondent'];
+  if (!isRecord(rawCorrespondent)) {
+    return null;
+  }
+
+  const name = asNonEmptyString(rawCorrespondent['name']);
+  if (!name) {
+    return null;
+  }
+
+  return {
+    kind: asNonEmptyString(rawCorrespondent['kind']) ?? undefined,
+    id: asNonEmptyString(rawCorrespondent['id']) ?? null,
+    name,
+    title: asNonEmptyString(rawCorrespondent['title']) ?? null,
+    subtitle: asNonEmptyString(rawCorrespondent['subtitle']) ?? null,
+    avatarUrl: asNonEmptyString(rawCorrespondent['avatar_url']) ?? null,
+  };
+}
+
 export function createChatController(options: ChatControllerOptions): ChatController {
   const listeners = new Set<(state: ChatState) => void>();
   const transcriptStore = createTranscriptStore();
@@ -115,6 +141,9 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       : defaultInputLockPolicy();
 
     return {
+      session: {
+        correspondent: getSessionCorrespondent(options.client),
+      },
       connection: {
         channelState,
         sessionState,
@@ -323,7 +352,12 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         ts: new Date().toISOString(),
         clientMsgId,
         retryable: false,
-        meta: { attachments: message.attachments ?? [] },
+        meta: {
+          ...(message.meta ?? {}),
+          ...(message.attachments ? { attachments: message.attachments } : {}),
+          client_msg_id: clientMsgId,
+          timestamp_source: 'client',
+        },
         originalPayload: sendPayload,
       };
 
@@ -336,8 +370,6 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
-        transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'sent', retryable: false });
-        emitStateChanged();
         return { ok: true, messageId: id, clientMsgId };
       } catch (err) {
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
@@ -370,8 +402,6 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
-        transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'sent', retryable: false });
-        emitStateChanged();
         return { ok: true, messageId, clientMsgId };
       } catch (err) {
         const sendError = err instanceof Error ? err.message : 'Message was not sent';

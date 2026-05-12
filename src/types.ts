@@ -57,8 +57,22 @@ export interface CortexClientLike {
   replyEscalation?(options: ReplyEscalationRequest): Promise<void>;
   onMessage(handler: (message: CortexTransportMessage) => void): () => void;
   sessionId?: string | null;
+  sessionMeta?: Record<string, unknown> | null;
   sessionState?: string;
   channelState?: string;
+}
+
+export interface ChatCorrespondent {
+  kind?: string;
+  id?: string | null;
+  name: string;
+  title?: string | null;
+  subtitle?: string | null;
+  avatarUrl?: string | null;
+}
+
+export interface ChatSessionState {
+  correspondent: ChatCorrespondent | null;
 }
 
 export interface ChatMessageViewModel {
@@ -109,6 +123,7 @@ export interface WorkerState {
 }
 
 export interface ChatState {
+  session: ChatSessionState;
   connection: {
     channelState: string;
     sessionState: string;

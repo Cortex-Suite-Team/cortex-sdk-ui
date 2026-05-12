@@ -114,6 +114,86 @@ describe('createTranscriptStore', () => {
     expect(store.getSnapshot()).toHaveLength(1);
   });
 
+  it('reconciles optimistic user message with backend echo by client_msg_id', () => {
+    const store = createTranscriptStore();
+    const localTs = new Date().toISOString();
+
+    store.upsertLocalMessage({
+      id: 'client:msg_1',
+      type: 'chat::message',
+      role: 'user',
+      content: 'Hello',
+      status: 'final',
+      deliveryStatus: 'sending',
+      ts: localTs,
+      clientMsgId: 'msg_1',
+      meta: {
+        client_msg_id: 'msg_1',
+        timestamp_source: 'client',
+      },
+      originalPayload: {
+        content: 'Hello',
+        meta: {
+          client_msg_id: 'msg_1',
+        },
+      },
+    });
+
+    const result = store.ingest(createMessage('chat::message', {
+      content: 'Hello',
+      role: 'user',
+      meta: {
+        client_msg_id: 'msg_1',
+      },
+    }, 5));
+
+    expect(result.mutation?.type).toBe('message_updated');
+    expect(result.mutation?.message.deliveryStatus).toBe('sent');
+    expect(result.mutation?.message.id).not.toBe('client:msg_1');
+    expect(result.mutation?.message.ts).toBe(new Date(5000).toISOString());
+    expect(result.mutation?.message.meta?.['timestamp_source']).toBe('server');
+    expect(store.getSnapshot()).toHaveLength(1);
+  });
+
+  it('keeps provisional timestamp when backend echo has no ts', () => {
+    const store = createTranscriptStore();
+    const localTs = new Date().toISOString();
+
+    store.upsertLocalMessage({
+      id: 'client:msg_2',
+      type: 'chat::message',
+      role: 'user',
+      content: 'Hello',
+      status: 'final',
+      deliveryStatus: 'sending',
+      ts: localTs,
+      clientMsgId: 'msg_2',
+      meta: {
+        client_msg_id: 'msg_2',
+        timestamp_source: 'client',
+      },
+    });
+
+    store.ingest({
+      type: 'chat::message',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 6,
+      payload: {
+        content: 'Hello',
+        role: 'user',
+        meta: {
+          client_msg_id: 'msg_2',
+        },
+      },
+    });
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0].ts).toBe(localTs);
+    expect(snapshot[0].meta?.['timestamp_source']).toBe('client');
+  });
+
   it('upsertLocalMessage does not affect server-ingested messages', () => {
     const store = createTranscriptStore();
 

@@ -24,6 +24,47 @@ describe('sdk-ui controllers', () => {
     expect(client.activeListenerCount()).toBe(1);
   });
 
+  it('populates session.correspondent from client sessionMeta', () => {
+    const client = createMockClient();
+    client.sessionMeta = {
+      chat_correspondent: {
+        kind: 'digital_worker',
+        id: 'project_123',
+        name: 'Robot Vasya',
+        title: 'Legal Assistant',
+        subtitle: 'Contract review worker',
+        avatar_url: 'https://example.test/avatar.png',
+      },
+    };
+
+    const controller = createChatController({ client });
+
+    expect(controller.getState().session).toEqual({
+      correspondent: {
+        kind: 'digital_worker',
+        id: 'project_123',
+        name: 'Robot Vasya',
+        title: 'Legal Assistant',
+        subtitle: 'Contract review worker',
+        avatarUrl: 'https://example.test/avatar.png',
+      },
+    });
+  });
+
+  it('returns session.correspondent null for malformed or missing client sessionMeta', () => {
+    const malformedClient = createMockClient();
+    malformedClient.sessionMeta = {
+      chat_correspondent: {
+        title: 'Missing name',
+      },
+    };
+
+    const missingClient = createMockClient();
+
+    expect(createChatController({ client: malformedClient }).getState().session.correspondent).toBeNull();
+    expect(createChatController({ client: missingClient }).getState().session.correspondent).toBeNull();
+  });
+
   it('repeated connect or sendMessage does not duplicate subscription', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
@@ -71,12 +112,10 @@ describe('sdk-ui controllers', () => {
     expect(typeof result.clientMsgId).toBe('string');
   });
 
-  it('sendMessage creates optimistic user message with deliveryStatus sending then sent', async () => {
+  it('sendMessage creates optimistic user message with provisional timestamp and sending state', async () => {
     const client = createMockClient();
-    const states: ReturnType<typeof controller.getState>[] = [];
     const controller = createChatController({
       client,
-      onStateChange: (s) => states.push(s),
     });
 
     await controller.sendMessage({ content: 'Hello' });
@@ -85,7 +124,13 @@ describe('sdk-ui controllers', () => {
     expect(transcript).toHaveLength(1);
     expect(transcript[0].role).toBe('user');
     expect(transcript[0].content).toEqual('Hello');
-    expect(transcript[0].deliveryStatus).toBe('sent');
+    expect(transcript[0].deliveryStatus).toBe('sending');
+    expect(typeof transcript[0].clientMsgId).toBe('string');
+    expect(transcript[0].meta).toMatchObject({
+      client_msg_id: transcript[0].clientMsgId,
+      timestamp_source: 'client',
+    });
+    expect(typeof transcript[0].ts).toBe('string');
   });
 
   it('sendMessage sends payload with client_msg_id in meta', async () => {
@@ -153,7 +198,7 @@ describe('sdk-ui controllers', () => {
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
     expect(transcript[0].id).toBe(failedId);
-    expect(transcript[0].deliveryStatus).toBe('sent');
+    expect(transcript[0].deliveryStatus).toBe('sending');
     expect(transcript[0].retryable).toBe(false);
     // Retry recorded exactly one successful send
     expect(client.sentMessages).toHaveLength(1);
@@ -215,7 +260,7 @@ describe('sdk-ui controllers', () => {
     client.emit(createMessage('system::state', { meta: { state: 'working', label: 'Thinking…', ttl_ms: 5000 } }));
 
     const msg = controller.getState().transcript.find((m) => m.id === msgId);
-    expect(msg?.deliveryStatus).toBe('sent');
+    expect(msg?.deliveryStatus).toBe('sending');
   });
 
   it('chat::answer does not mutate user message deliveryStatus', async () => {
@@ -229,7 +274,98 @@ describe('sdk-ui controllers', () => {
     client.emit(createMessage('chat::answer', { content: 'Hi there', role: 'assistant', turn_id: 'turn_1' }));
 
     const userMsg = controller.getState().transcript.find((m) => m.id === msgId);
-    expect(userMsg?.deliveryStatus).toBe('sent');
+    expect(userMsg?.deliveryStatus).toBe('sending');
+  });
+
+  it('backend echo with matching client_msg_id reconciles optimistic message instead of duplicating it', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.sendMessage({ content: 'Test' });
+
+    const optimistic = controller.getState().transcript[0];
+    const clientMsgId = optimistic.clientMsgId;
+    expect(clientMsgId).toBeTruthy();
+
+    client.emit(createMessage('chat::message', {
+      content: 'Test',
+      role: 'user',
+      meta: {
+        client_msg_id: clientMsgId,
+      },
+    }, 7));
+
+    const transcript = controller.getState().transcript;
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0].content).toBe('Test');
+    expect(transcript[0].deliveryStatus).toBe('sent');
+    expect(transcript[0].clientMsgId).toBe(clientMsgId);
+    expect(transcript[0].ts).toBe(new Date(7000).toISOString());
+    expect(transcript[0].meta?.['timestamp_source']).toBe('server');
+    expect(transcript[0].id).not.toBe(optimistic.id);
+  });
+
+  it('backend echo without matching client_msg_id is added as a separate message', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.sendMessage({ content: 'Test' });
+
+    client.emit(createMessage('chat::message', {
+      content: 'Test',
+      role: 'user',
+      meta: {
+        client_msg_id: 'different-client-msg-id',
+      },
+    }, 8));
+
+    const transcript = controller.getState().transcript;
+    expect(transcript).toHaveLength(2);
+  });
+
+  it('matching backend echo without server timestamp keeps the local provisional timestamp', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.sendMessage({ content: 'No ts' });
+
+    const optimistic = controller.getState().transcript[0];
+    const clientMsgId = optimistic.clientMsgId as string;
+
+    client.emit({
+      type: 'chat::message',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 9,
+      payload: {
+        content: 'No ts',
+        role: 'user',
+        meta: {
+          client_msg_id: clientMsgId,
+        },
+      },
+    });
+
+    const transcript = controller.getState().transcript;
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0].deliveryStatus).toBe('sent');
+    expect(transcript[0].ts).toBe(optimistic.ts);
+    expect(transcript[0].meta?.['timestamp_source']).toBe('client');
+  });
+
+  it('two separate sends with identical text remain distinct because client_msg_id differs', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.sendMessage({ content: 'Same text' });
+    await controller.sendMessage({ content: 'Same text' });
+
+    const transcript = controller.getState().transcript;
+    expect(transcript).toHaveLength(2);
+    expect(transcript[0].clientMsgId).not.toBe(transcript[1].clientMsgId);
   });
 
   it('creates escalation state from escalation::request', async () => {

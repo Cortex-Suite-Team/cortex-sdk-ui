@@ -93,28 +93,29 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     existing: ChatMessageViewModel,
     normalized: ChatMessageViewModel,
   ): ChatMessageViewModel {
+    const hasServerTs = normalized.ts !== null && normalized.ts !== undefined;
     const nextMeta: Record<string, unknown> = {
+      ...(existing.meta ?? {}),
       ...(normalized.meta ?? {}),
+      timestamp_source: hasServerTs ? 'server' : existing.meta?.['timestamp_source'],
+      echo_seq: normalized.seq ?? existing.meta?.['echo_seq'],
+      echo_type: 'chat::echo',
+      echo_ts: normalized.ts ?? existing.meta?.['echo_ts'],
     };
 
-    if (normalized.ts) {
-      nextMeta['timestamp_source'] = 'server';
-    } else if (existing.meta?.['timestamp_source'] !== undefined) {
-      nextMeta['timestamp_source'] = existing.meta['timestamp_source'];
-    }
-
     return {
-      ...normalized,
-      // Keep the original optimistic bubble identity stable across echo reconciliation.
-      // Server seq/ts still become authoritative when present, but the logical user
-      // message id should not change underneath the UI.
+      ...existing,
       id: existing.id,
-      clientMsgId: normalized.clientMsgId ?? existing.clientMsgId,
+      type: existing.type,
+      role: 'user',
+      content: existing.content,
+      seq: normalized.seq ?? existing.seq ?? null,
+      ts: normalized.ts ?? existing.ts ?? null,
+      clientMsgId: existing.clientMsgId ?? normalized.clientMsgId,
       deliveryStatus: 'processed',
       retryable: false,
       sendError: undefined,
       originalPayload: existing.originalPayload,
-      ts: normalized.ts ?? existing.ts ?? null,
       meta: nextMeta,
     };
   }
@@ -181,10 +182,24 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
       }
 
       const normalized = normalizeCortexMessage(message);
-      const existingIndex = indexById.get(normalized.id);
       const optimisticIndex = message.type === 'chat::echo' && normalized.role === 'user'
         ? findMessageIndexByClientMsgId(normalized.clientMsgId)
         : undefined;
+      const existingIndex = indexById.get(normalized.id);
+
+      if (message.type === 'chat::echo' && normalized.role === 'user') {
+        if (optimisticIndex !== undefined) {
+          const existing = transcript[optimisticIndex];
+          return updateMessage(optimisticIndex, reconcileOptimisticUserMessage(existing, normalized));
+        }
+
+        return addMessage({
+          ...normalized,
+          role: 'user',
+          deliveryStatus: 'processed',
+          retryable: false,
+        });
+      }
 
       if (message.type === 'chat::partial' && existingIndex !== undefined) {
         const existing = transcript[existingIndex];
@@ -226,19 +241,6 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       if (existingIndex !== undefined) {
         return updateMessage(existingIndex, normalized);
-      }
-
-      if (optimisticIndex !== undefined) {
-        const existing = transcript[optimisticIndex];
-        return updateMessage(optimisticIndex, reconcileOptimisticUserMessage(existing, normalized));
-      }
-
-      if (message.type === 'chat::echo' && normalized.role === 'user') {
-        return addMessage({
-          ...normalized,
-          deliveryStatus: 'processed',
-          retryable: false,
-        });
       }
 
       return addMessage(normalized);

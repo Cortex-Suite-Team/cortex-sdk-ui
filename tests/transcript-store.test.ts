@@ -206,9 +206,73 @@ describe('createTranscriptStore', () => {
     expect(result.mutation?.type).toBe('message_updated');
     expect(result.mutation?.message.deliveryStatus).toBe('processed');
     expect(result.mutation?.message.id).toBe('client:msg_1');
+    expect(result.mutation?.message.type).toBe('chat::message');
+    expect(result.mutation?.message.content).toBe('Hello');
     expect(result.mutation?.message.ts).toBe(new Date(5000).toISOString());
     expect(result.mutation?.message.meta?.['timestamp_source']).toBe('server');
+    expect(result.mutation?.message.meta?.['echo_type']).toBe('chat::echo');
     expect(store.getSnapshot()).toHaveLength(1);
+  });
+
+  it('preserves optimistic identity and content when matching chat::echo arrives for a sent user message', () => {
+    const store = createTranscriptStore();
+
+    store.upsertLocalMessage({
+      id: 'client:abc',
+      type: 'chat::message',
+      role: 'user',
+      content: 'Тестовое сообщение',
+      status: 'final',
+      clientMsgId: 'abc',
+      deliveryStatus: 'sent',
+      ts: '2026-05-14T18:35:00.000Z',
+      meta: {
+        client_msg_id: 'abc',
+        timestamp_source: 'client',
+      },
+      originalPayload: {
+        content: 'Тестовое сообщение',
+        meta: {
+          client_msg_id: 'abc',
+        },
+      },
+    });
+
+    store.ingest({
+      type: 'chat::echo',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 42,
+      ts: '2026-05-14T18:35:10.000Z',
+      payload: {
+        role: 'user',
+        content: 'Тестовое сообщение',
+        meta: {
+          client_msg_id: 'abc',
+        },
+      },
+    });
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot).toHaveLength(1);
+    expect(snapshot[0]).toMatchObject({
+      id: 'client:abc',
+      type: 'chat::message',
+      role: 'user',
+      content: 'Тестовое сообщение',
+      clientMsgId: 'abc',
+      deliveryStatus: 'processed',
+      seq: 42,
+      ts: '2026-05-14T18:35:10.000Z',
+    });
+    expect(snapshot[0].meta?.['timestamp_source']).toBe('server');
+    expect(snapshot[0].meta?.['echo_type']).toBe('chat::echo');
+    expect(snapshot[0].originalPayload).toEqual({
+      content: 'Тестовое сообщение',
+      meta: {
+        client_msg_id: 'abc',
+      },
+    });
   });
 
   it('keeps provisional timestamp when chat::echo has no ts', () => {
@@ -249,6 +313,7 @@ describe('createTranscriptStore', () => {
     expect(snapshot[0].ts).toBe(localTs);
     expect(snapshot[0].deliveryStatus).toBe('processed');
     expect(snapshot[0].meta?.['timestamp_source']).toBe('client');
+    expect(snapshot[0].meta?.['echo_type']).toBe('chat::echo');
   });
 
   it('stores unmatched chat::echo as a processed user message', () => {

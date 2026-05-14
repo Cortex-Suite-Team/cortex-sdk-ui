@@ -465,12 +465,15 @@ describe('sdk-ui controllers', () => {
 
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
+    expect(transcript[0].type).toBe('chat::message');
+    expect(transcript[0].role).toBe('user');
     expect(transcript[0].content).toBe('Test');
     expect(transcript[0].deliveryStatus).toBe('processed');
     expect(transcript[0].clientMsgId).toBe(clientMsgId);
     expect(transcript[0].ts).toBe(new Date(7000).toISOString());
     expect(transcript[0].meta?.['timestamp_source']).toBe('server');
     expect(transcript[0].id).toBe(optimistic.id);
+    expect(transcript[0].meta?.['echo_type']).toBe('chat::echo');
   });
 
   it('chat::echo without matching client_msg_id is added as a separate message', async () => {

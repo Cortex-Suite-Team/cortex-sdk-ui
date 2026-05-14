@@ -2,6 +2,7 @@ import {
   createChatError,
   errorFromUnknown,
 } from './errors.js';
+import { createDebugLogger } from './debug.js';
 import { createEscalationController } from './escalation-controller.js';
 import { createTranscriptStore } from './transcript-store.js';
 import type {
@@ -28,6 +29,15 @@ import {
 } from './utils.js';
 
 const MESSAGE_SEND_TIMEOUT_MS = 15_000;
+const LIFECYCLE_SESSION_STATE_MAP: Record<string, string> = {
+  active: 'ACTIVE',
+  waiting: 'WAITING',
+  completed: 'COMPLETED',
+  failed: 'FAILED',
+  stopped: 'STOPPED',
+  timeout: 'TIMEOUT',
+  cancelled: 'CANCELLED',
+};
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, msg: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -120,6 +130,7 @@ function summarizeSendPayload(payload: {
 export function createChatController(options: ChatControllerOptions): ChatController {
   const listeners = new Set<(state: ChatState) => void>();
   const transcriptStore = createTranscriptStore();
+  const debug = createDebugLogger(options.debug);
   let unsubscribeFromClient: (() => void) | null = null;
   let destroyed = false;
   let lastError: ChatErrorViewModel | null = null;
@@ -127,6 +138,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let workerState: WorkerState = { state: 'idle' };
   let workerStateTtlTimer: ReturnType<typeof setTimeout> | null = null;
   let awaitingAnswer = false;
+  let sessionCorrespondent = getSessionCorrespondent(options.client);
+  let sessionStateOverride: string | null = null;
 
   const escalationController = createEscalationController({
     client: options.client,
@@ -145,7 +158,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   }
 
   function getSessionState(): string {
-    return options.client.sessionState ?? 'CREATED';
+    return sessionStateOverride ?? options.client.sessionState ?? 'CREATED';
   }
 
   function getSessionId(): string | null {
@@ -217,7 +230,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
     return {
       session: {
-        correspondent: getSessionCorrespondent(options.client),
+        correspondent: sessionCorrespondent ? { ...sessionCorrespondent } : null,
       },
       connection: {
         channelState,
@@ -286,6 +299,77 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     workerState = { state: 'idle' };
   }
 
+  function refreshSessionSnapshot(): void {
+    sessionCorrespondent = getSessionCorrespondent(options.client);
+  }
+
+  function applySessionStateOverride(nextState: string | null): void {
+    if (nextState === null) {
+      sessionStateOverride = null;
+      return;
+    }
+    if (TERMINAL_SESSION_STATES.has(getSessionState()) && getSessionState() !== nextState) {
+      return;
+    }
+    sessionStateOverride = nextState;
+  }
+
+  function resolveLifecycleStatus(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never): string | null {
+    const payload = asPayload(message);
+    const payloadMeta = isRecord(payload['meta']) ? payload['meta'] : null;
+    return (
+      asNonEmptyString(payload['status'])
+      ?? asNonEmptyString(payload['state'])
+      ?? asNonEmptyString(payloadMeta?.['status'])
+      ?? asNonEmptyString(payloadMeta?.['state'])
+    )?.toLowerCase() ?? null;
+  }
+
+  function handleSystemOpened(): void {
+    refreshSessionSnapshot();
+    applySessionStateOverride('ACTIVE');
+  }
+
+  function handleSystemLifecycle(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never): boolean {
+    const status = resolveLifecycleStatus(message);
+    if (!status) {
+      return false;
+    }
+
+    const nextSessionState = LIFECYCLE_SESSION_STATE_MAP[status] ?? null;
+    if (nextSessionState) {
+      applySessionStateOverride(nextSessionState);
+    }
+
+    if (status === 'active') {
+      resetWorkerStateToIdle();
+      return true;
+    }
+
+    if (status === 'busy') {
+      applyWorkerState({ state: 'working' });
+      return true;
+    }
+
+    if (status === 'idle') {
+      resetWorkerStateToIdle();
+      return true;
+    }
+
+    if (status === 'waiting') {
+      applyWorkerState({ state: 'waiting' });
+      return true;
+    }
+
+    if (TERMINAL_SESSION_STATES.has((nextSessionState ?? '').toUpperCase())) {
+      awaitingAnswer = false;
+      resetWorkerStateToIdle();
+      return true;
+    }
+
+    return nextSessionState !== null;
+  }
+
   function ensureClientSubscription() {
     if (destroyed || unsubscribeFromClient) {
       return;
@@ -302,6 +386,19 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   }
 
   function handleMessage(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never) {
+    if (message.type === 'system::opened') {
+      handleSystemOpened();
+      emitStateChanged();
+      return;
+    }
+
+    if (message.type === 'system::lifecycle') {
+      if (handleSystemLifecycle(message)) {
+        emitStateChanged();
+      }
+      return;
+    }
+
     if (message.type === 'system::state') {
       const payload = asPayload(message);
       const meta = isRecord(payload['meta']) ? payload['meta'] : null;
@@ -312,6 +409,14 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       const expiresAt = ttlMs !== undefined ? Date.now() + ttlMs : undefined;
       applyWorkerState({ state: stateName, label, expiresAt, correlation_id: correlationId });
       emitStateChanged();
+      return;
+    }
+
+    if (
+      message.type === 'system::pong'
+      || message.type === 'system::telemetry'
+      || message.type === 'system::billing'
+    ) {
       return;
     }
 
@@ -410,6 +515,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
     async disconnect() {
       awaitingAnswer = false;
+      sessionStateOverride = null;
       if (options.client.disconnect) {
         await options.client.disconnect();
       }
@@ -454,14 +560,14 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
 
       try {
-        console.debug('[sdk-ui] sendMessage -> client.sendMessage start', summarizeSendPayload(sendPayload));
+        debug.log('[sdk-ui] sendMessage -> client.sendMessage start', summarizeSendPayload(sendPayload));
         await withTimeout(
           options.client.sendMessage(sendPayload),
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
         awaitingAnswer = true;
-        console.debug('[sdk-ui] sendMessage -> client.sendMessage done', {
+        debug.log('[sdk-ui] sendMessage -> client.sendMessage done', {
           clientMsgId,
           ok: true,
         });
@@ -469,7 +575,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         return { ok: true, messageId: id, clientMsgId };
       } catch (err) {
         awaitingAnswer = false;
-        console.debug('[sdk-ui] sendMessage -> client.sendMessage failed', {
+        debug.log('[sdk-ui] sendMessage -> client.sendMessage failed', {
           clientMsgId,
           error: err instanceof Error ? err.message : String(err),
         });
@@ -498,14 +604,14 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
 
       try {
-        console.debug('[sdk-ui] retryMessage -> client.sendMessage start', summarizeSendPayload(msg.originalPayload));
+        debug.log('[sdk-ui] retryMessage -> client.sendMessage start', summarizeSendPayload(msg.originalPayload));
         await withTimeout(
           options.client.sendMessage(msg.originalPayload),
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
         awaitingAnswer = true;
-        console.debug('[sdk-ui] retryMessage -> client.sendMessage done', {
+        debug.log('[sdk-ui] retryMessage -> client.sendMessage done', {
           clientMsgId,
           ok: true,
         });
@@ -513,7 +619,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         return { ok: true, messageId, clientMsgId };
       } catch (err) {
         awaitingAnswer = false;
-        console.debug('[sdk-ui] retryMessage -> client.sendMessage failed', {
+        debug.log('[sdk-ui] retryMessage -> client.sendMessage failed', {
           clientMsgId,
           error: err instanceof Error ? err.message : String(err),
         });

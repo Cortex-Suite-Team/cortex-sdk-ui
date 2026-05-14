@@ -13,6 +13,13 @@ import {
   cloneMessage,
 } from './utils.js';
 
+function shouldStoreInTranscript(message: CortexTransportMessage): boolean {
+  if (message.type === 'system::error') {
+    return true;
+  }
+  return !message.type.startsWith('system::');
+}
+
 export function createTranscriptStore(options: TranscriptStoreOptions = {}): TranscriptStore {
   const transcript = (options.initialTranscript ?? []).map((message) => cloneMessage(message));
   const indexById = new Map<string, number>();
@@ -151,6 +158,12 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     },
 
     ingest(message) {
+      if (!shouldStoreInTranscript(message)) {
+        return {
+          transcript: snapshot(),
+        };
+      }
+
       const payload = asPayload(message);
 
       if (message.type === 'chat::partial' && !asNonEmptyString(payload['turn_id'])) {

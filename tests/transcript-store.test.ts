@@ -72,6 +72,44 @@ describe('createTranscriptStore', () => {
     });
   });
 
+  it('never stores blocked system messages in transcript', () => {
+    const store = createTranscriptStore();
+
+    for (const type of [
+      'system::opened',
+      'system::lifecycle',
+      'system::state',
+      'system::pong',
+      'system::telemetry',
+      'system::billing',
+    ]) {
+      const result = store.ingest(createMessage(type, {
+        status: 'active',
+        message: 'hidden',
+      }));
+
+      expect(result.mutation).toBeUndefined();
+    }
+
+    expect(store.getSnapshot()).toHaveLength(0);
+  });
+
+  it('renders system::error as human-readable message instead of raw payload json', () => {
+    const store = createTranscriptStore();
+
+    const result = store.ingest(createMessage('system::error', {
+      code: 'runtime_error',
+      message: 'Worker failed to load',
+      details: {
+        nested: true,
+      },
+    }));
+
+    expect(result.mutation?.message.role).toBe('error');
+    expect(result.mutation?.message.content).toBe('Worker failed to load');
+    expect(store.getSnapshot()[0]?.content).toBe('Worker failed to load');
+  });
+
   it('upsertLocalMessage adds new message when id not present', () => {
     const store = createTranscriptStore();
 

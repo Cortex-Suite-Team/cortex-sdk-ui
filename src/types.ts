@@ -179,6 +179,7 @@ export interface EscalationControllerOptions {
 export interface ChatControllerOptions {
   client: CortexClientLike;
   mode?: 'end_user' | 'operator';
+  debug?: boolean;
   onStateChange?: (state: ChatState) => void;
   onEvent?: (event: ChatControllerEvent) => void;
   replyRequestBuilder?: (args: ReplyRequestBuilderArgs) => ReplyEscalationRequest;

@@ -1,3 +1,4 @@
+import { jest } from '@jest/globals';
 import {
   createChatController,
   createEscalationController,
@@ -77,6 +78,34 @@ describe('sdk-ui controllers', () => {
     expect(controller.getState().session.correspondent?.name).toBe('Context Worker');
   });
 
+  it('sendMessage does not overwrite session-level correspondent state', async () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        name: 'Stable Worker',
+        title: 'Trusted Identity',
+        avatarUrl: 'https://example.test/stable.png',
+      },
+    };
+    const controller = createChatController({ client });
+
+    await controller.sendMessage({
+      content: 'Hello',
+      meta: {
+        actor: {
+          name: 'Optimistic User Actor',
+        },
+      },
+    });
+
+    expect(controller.getState().session.correspondent).toMatchObject({
+      name: 'Stable Worker',
+      title: 'Trusted Identity',
+      avatarUrl: 'https://example.test/stable.png',
+    });
+  });
+
   it('returns session.correspondent null for malformed or missing client sessionMeta', () => {
     const malformedClient = createMockClient();
     malformedClient.sessionMeta = {
@@ -140,6 +169,17 @@ describe('sdk-ui controllers', () => {
       locked: true,
       reason: 'awaiting_answer',
     });
+  });
+
+  it('sendMessage does not emit console.debug by default', async () => {
+    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.sendMessage({ content: 'Hello' });
+
+    expect(debugSpy).not.toHaveBeenCalled();
+    debugSpy.mockRestore();
   });
 
   it('locks input while the session is opening', () => {

@@ -12,6 +12,63 @@ function makeSystemState(
 }
 
 describe('chat-controller — system::state handling', () => {
+  it('system::opened refreshes correspondent state without adding transcript entries', async () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        kind: 'digital_worker',
+        id: 'worker_1',
+        name: 'Echo Worker',
+        title: 'Tester',
+        avatarUrl: 'https://example.test/avatar.png',
+      },
+    };
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::opened', {
+      correspondent: {
+        name: 'Echo Worker',
+      },
+    }));
+
+    expect(controller.getState().session.correspondent).toMatchObject({
+      name: 'Echo Worker',
+      title: 'Tester',
+    });
+    expect(controller.getState().transcript).toHaveLength(0);
+  });
+
+  it('system::lifecycle busy and idle update workerState without transcript mutation', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::lifecycle', { status: 'busy' }));
+    expect(controller.getState().workerState.state).toBe('working');
+    expect(controller.getState().transcript).toHaveLength(0);
+
+    client.emit(createMessage('system::lifecycle', { status: 'idle' }));
+    expect(controller.getState().workerState.state).toBe('idle');
+    expect(controller.getState().transcript).toHaveLength(0);
+  });
+
+  it('system::lifecycle terminal status updates session state without transcript mutation', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::lifecycle', { status: 'completed' }));
+
+    expect(controller.getState().connection.sessionState).toBe('COMPLETED');
+    expect(controller.getState().input).toEqual({
+      locked: true,
+      reason: 'session_completed',
+    });
+    expect(controller.getState().transcript).toHaveLength(0);
+  });
+
   it('system::state updates workerState but does not add to transcript', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });

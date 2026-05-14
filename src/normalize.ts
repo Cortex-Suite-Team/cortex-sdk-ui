@@ -128,7 +128,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         seq: message.seq ?? null,
         type: message.type,
         role: 'error',
-        content: payload['message'] ?? payload,
+        content: asNonEmptyString(payload['message']) ?? 'Runtime error',
         status: 'error',
         ts: message.ts ?? null,
         meta: {

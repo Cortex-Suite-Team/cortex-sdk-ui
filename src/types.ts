@@ -8,7 +8,13 @@ export type ChatMessageRole =
 
 export type ChatMessageStatus = 'streaming' | 'final' | 'error';
 
-export type ChatMessageDeliveryStatus = 'sending' | 'sent' | 'failed';
+// Delivery status is transport/runtime progress for optimistic user messages.
+// Do not infer `delivered` without an explicit protocol ack.
+// Current semantics:
+// - `sent`: client.sendMessage() / WebSocket send resolved
+// - `processed`: chat::echo received from Runtime
+// - `delivered`: reserved for a future explicit server-side acceptance ack
+export type ChatMessageDeliveryStatus = 'sending' | 'sent' | 'delivered' | 'processed' | 'failed';
 
 export type EscalationAction =
   | 'continue'

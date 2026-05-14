@@ -542,6 +542,12 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
+        transcriptStore.upsertLocalMessage({
+          ...optimistic,
+          deliveryStatus: 'sent',
+          retryable: false,
+          sendError: undefined,
+        });
         awaitingAnswer = true;
         debug.log('[sdk-ui] sendMessage -> client.sendMessage done', {
           clientMsgId,
@@ -586,6 +592,12 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
+        transcriptStore.upsertLocalMessage({
+          ...updated,
+          deliveryStatus: 'sent',
+          retryable: false,
+          sendError: undefined,
+        });
         awaitingAnswer = true;
         debug.log('[sdk-ui] retryMessage -> client.sendMessage done', {
           clientMsgId,

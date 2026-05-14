@@ -107,7 +107,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
       ...normalized,
       id: normalized.id,
       clientMsgId: normalized.clientMsgId ?? existing.clientMsgId,
-      deliveryStatus: 'sent',
+      deliveryStatus: 'processed',
       retryable: false,
       sendError: undefined,
       originalPayload: existing.originalPayload,
@@ -228,6 +228,14 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
       if (optimisticIndex !== undefined) {
         const existing = transcript[optimisticIndex];
         return updateMessage(optimisticIndex, reconcileOptimisticUserMessage(existing, normalized));
+      }
+
+      if (message.type === 'chat::echo' && normalized.role === 'user') {
+        return addMessage({
+          ...normalized,
+          deliveryStatus: 'processed',
+          retryable: false,
+        });
       }
 
       return addMessage(normalized);

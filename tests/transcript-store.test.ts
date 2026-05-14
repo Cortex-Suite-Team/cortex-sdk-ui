@@ -204,7 +204,7 @@ describe('createTranscriptStore', () => {
     }, 5));
 
     expect(result.mutation?.type).toBe('message_updated');
-    expect(result.mutation?.message.deliveryStatus).toBe('sent');
+    expect(result.mutation?.message.deliveryStatus).toBe('processed');
     expect(result.mutation?.message.id).not.toBe('client:msg_1');
     expect(result.mutation?.message.ts).toBe(new Date(5000).toISOString());
     expect(result.mutation?.message.meta?.['timestamp_source']).toBe('server');
@@ -247,7 +247,25 @@ describe('createTranscriptStore', () => {
     const snapshot = store.getSnapshot();
     expect(snapshot).toHaveLength(1);
     expect(snapshot[0].ts).toBe(localTs);
+    expect(snapshot[0].deliveryStatus).toBe('processed');
     expect(snapshot[0].meta?.['timestamp_source']).toBe('client');
+  });
+
+  it('stores unmatched chat::echo as a processed user message', () => {
+    const store = createTranscriptStore();
+
+    const result = store.ingest(createMessage('chat::echo', {
+      content: 'Hello from runtime',
+      role: 'user',
+      meta: {
+        client_msg_id: 'msg_unmatched',
+      },
+    }, 7));
+
+    expect(result.mutation?.type).toBe('message_added');
+    expect(result.mutation?.message.role).toBe('user');
+    expect(result.mutation?.message.deliveryStatus).toBe('processed');
+    expect(store.getSnapshot()).toHaveLength(1);
   });
 
   it('upsertLocalMessage does not affect server-ingested messages', () => {

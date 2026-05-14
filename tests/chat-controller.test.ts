@@ -247,13 +247,19 @@ describe('sdk-ui controllers', () => {
       client,
     });
 
-    await controller.sendMessage({ content: 'Hello' });
+    const pendingSend = controller.sendMessage({ content: 'Hello' });
+
+    const optimisticTranscript = controller.getState().transcript;
+    expect(optimisticTranscript).toHaveLength(1);
+    expect(optimisticTranscript[0].deliveryStatus).toBe('sending');
+
+    await pendingSend;
 
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
     expect(transcript[0].role).toBe('user');
     expect(transcript[0].content).toEqual('Hello');
-    expect(transcript[0].deliveryStatus).toBe('sending');
+    expect(transcript[0].deliveryStatus).toBe('sent');
     expect(typeof transcript[0].clientMsgId).toBe('string');
     expect(transcript[0].meta).toMatchObject({
       client_msg_id: transcript[0].clientMsgId,
@@ -325,18 +331,28 @@ describe('sdk-ui controllers', () => {
     expect(transcript[0].sendError).toBe('WebSocket closed');
   });
 
-  it('retryMessage resends originalPayload and returns ok=true on success', async () => {
+  it('retryMessage resends originalPayload, reuses client_msg_id, and returns ok=true on success', async () => {
     const client = createMockClient();
     client.setSendError(new Error('offline'));
     const controller = createChatController({ client });
 
     await controller.sendMessage({ content: 'Retry me' });
+    const failedMessage = controller.getState().transcript[0];
     const failedId = controller.getState().transcript[0].id;
+    const originalClientMsgId = failedMessage.clientMsgId;
+    const originalPayloadClientMsgId = failedMessage.originalPayload?.meta?.['client_msg_id'];
     // Mock throws before recording, so sentMessages is empty after failed send
     expect(client.sentMessages).toHaveLength(0);
 
     client.setSendError(null);
-    const retryResult = await controller.retryMessage(failedId);
+    const pendingRetry = controller.retryMessage(failedId);
+
+    const retryingTranscript = controller.getState().transcript;
+    expect(retryingTranscript).toHaveLength(1);
+    expect(retryingTranscript[0].deliveryStatus).toBe('sending');
+    expect(retryingTranscript[0].retryable).toBe(false);
+
+    const retryResult = await pendingRetry;
 
     expect(retryResult).not.toBeNull();
     expect(retryResult?.ok).toBe(true);
@@ -347,11 +363,13 @@ describe('sdk-ui controllers', () => {
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
     expect(transcript[0].id).toBe(failedId);
-    expect(transcript[0].deliveryStatus).toBe('sending');
+    expect(transcript[0].deliveryStatus).toBe('sent');
     expect(transcript[0].retryable).toBe(false);
+    expect(transcript[0].clientMsgId).toBe(originalClientMsgId);
     // Retry recorded exactly one successful send
     expect(client.sentMessages).toHaveLength(1);
     expect(client.sentMessages[0].content).toBe('Retry me');
+    expect(client.sentMessages[0].meta?.['client_msg_id']).toBe(originalPayloadClientMsgId);
   });
 
   it('retryMessage on failure returns ok=false and keeps deliveryStatus failed', async () => {
@@ -409,7 +427,7 @@ describe('sdk-ui controllers', () => {
     client.emit(createMessage('system::state', { meta: { state: 'working', label: 'Thinking…', ttl_ms: 5000 } }));
 
     const msg = controller.getState().transcript.find((m) => m.id === msgId);
-    expect(msg?.deliveryStatus).toBe('sending');
+    expect(msg?.deliveryStatus).toBe('sent');
   });
 
   it('chat::answer does not mutate user message deliveryStatus', async () => {
@@ -423,7 +441,7 @@ describe('sdk-ui controllers', () => {
     client.emit(createMessage('chat::answer', { content: 'Hi there', role: 'assistant', turn_id: 'turn_1' }));
 
     const userMsg = controller.getState().transcript.find((m) => m.id === msgId);
-    expect(userMsg?.deliveryStatus).toBe('sending');
+    expect(userMsg?.deliveryStatus).toBe('sent');
   });
 
   it('chat::echo with matching client_msg_id reconciles optimistic message instead of duplicating it', async () => {
@@ -448,7 +466,7 @@ describe('sdk-ui controllers', () => {
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
     expect(transcript[0].content).toBe('Test');
-    expect(transcript[0].deliveryStatus).toBe('sent');
+    expect(transcript[0].deliveryStatus).toBe('processed');
     expect(transcript[0].clientMsgId).toBe(clientMsgId);
     expect(transcript[0].ts).toBe(new Date(7000).toISOString());
     expect(transcript[0].meta?.['timestamp_source']).toBe('server');
@@ -472,6 +490,8 @@ describe('sdk-ui controllers', () => {
 
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(2);
+    expect(transcript[1].role).toBe('user');
+    expect(transcript[1].deliveryStatus).toBe('processed');
   });
 
   it('matching chat::echo without server timestamp keeps the local provisional timestamp', async () => {
@@ -500,7 +520,7 @@ describe('sdk-ui controllers', () => {
 
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(1);
-    expect(transcript[0].deliveryStatus).toBe('sent');
+    expect(transcript[0].deliveryStatus).toBe('processed');
     expect(transcript[0].ts).toBe(optimistic.ts);
     expect(transcript[0].meta?.['timestamp_source']).toBe('client');
   });

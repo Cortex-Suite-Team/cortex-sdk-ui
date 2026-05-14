@@ -147,6 +147,26 @@ describe('sdk-ui controllers', () => {
     expect((sent.meta?.['client_msg_id'] as string).length).toBeGreaterThan(0);
   });
 
+  it('sendMessage calls client.sendMessage once with content and meta', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.sendMessage({
+      content: ['Approve'],
+      meta: { question_id: 'q_1', selected_option: 'approve' },
+    });
+
+    expect(client.sentMessages).toHaveLength(1);
+    expect(client.sentMessages[0]).toMatchObject({
+      content: ['Approve'],
+      meta: {
+        question_id: 'q_1',
+        selected_option: 'approve',
+      },
+    });
+    expect(typeof client.sentMessages[0].meta?.['client_msg_id']).toBe('string');
+  });
+
   it('sendMessage returns ok=false on transport failure', async () => {
     const client = createMockClient();
     client.setSendError(new Error('WebSocket closed'));

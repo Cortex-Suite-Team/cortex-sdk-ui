@@ -94,7 +94,7 @@ describe('createTranscriptStore', () => {
     expect(store.getSnapshot()).toHaveLength(0);
   });
 
-  it('renders system::error as human-readable message instead of raw payload json', () => {
+  it('does not store system::error in transcript by default', () => {
     const store = createTranscriptStore();
 
     const result = store.ingest(createMessage('system::error', {
@@ -105,9 +105,27 @@ describe('createTranscriptStore', () => {
       },
     }));
 
+    expect(result.mutation).toBeUndefined();
+    expect(store.getSnapshot()).toHaveLength(0);
+  });
+
+  it('stores only user-safe system::error messages in transcript', () => {
+    const store = createTranscriptStore();
+
+    const result = store.ingest(createMessage('system::error', {
+      code: 'user_visible_error',
+      message: 'Please retry in a moment.',
+      meta: {
+        user_safe: true,
+      },
+      details: {
+        nested: true,
+      },
+    }));
+
     expect(result.mutation?.message.role).toBe('error');
-    expect(result.mutation?.message.content).toBe('Worker failed to load');
-    expect(store.getSnapshot()[0]?.content).toBe('Worker failed to load');
+    expect(result.mutation?.message.content).toBe('Please retry in a moment.');
+    expect(store.getSnapshot()[0]?.content).toBe('Please retry in a moment.');
   });
 
   it('upsertLocalMessage adds new message when id not present', () => {

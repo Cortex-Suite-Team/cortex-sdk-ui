@@ -11,11 +11,18 @@ import {
   asNonEmptyString,
   asPayload,
   cloneMessage,
+  isRecord,
 } from './utils.js';
+
+function isUserSafeSystemError(message: CortexTransportMessage): boolean {
+  const payload = asPayload(message);
+  const meta = isRecord(payload['meta']) ? payload['meta'] : null;
+  return meta?.['user_safe'] === true;
+}
 
 function shouldStoreInTranscript(message: CortexTransportMessage): boolean {
   if (message.type === 'system::error') {
-    return true;
+    return isUserSafeSystemError(message);
   }
   return !message.type.startsWith('system::');
 }

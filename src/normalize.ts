@@ -32,12 +32,6 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
 
   switch (message.type) {
     case 'chat::message':
-      if (mapRole(payload['role'], 'user') === 'user' && getClientMsgId(mergedMeta) && !message.ts) {
-        console.warn('[sdk-ui] user chat::message echo arrived without server timestamp', {
-          client_msg_id: getClientMsgId(mergedMeta),
-          seq: message.seq ?? null,
-        });
-      }
       return {
         id: buildMessageId(message),
         seq: message.seq ?? null,

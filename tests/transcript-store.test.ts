@@ -170,7 +170,7 @@ describe('createTranscriptStore', () => {
     expect(store.getSnapshot()).toHaveLength(1);
   });
 
-  it('reconciles optimistic user message with backend echo by client_msg_id', () => {
+  it('reconciles optimistic user message with chat::echo by client_msg_id', () => {
     const store = createTranscriptStore();
     const localTs = new Date().toISOString();
 
@@ -195,7 +195,7 @@ describe('createTranscriptStore', () => {
       },
     });
 
-    const result = store.ingest(createMessage('chat::message', {
+    const result = store.ingest(createMessage('chat::echo', {
       content: 'Hello',
       role: 'user',
       meta: {
@@ -211,7 +211,7 @@ describe('createTranscriptStore', () => {
     expect(store.getSnapshot()).toHaveLength(1);
   });
 
-  it('keeps provisional timestamp when backend echo has no ts', () => {
+  it('keeps provisional timestamp when chat::echo has no ts', () => {
     const store = createTranscriptStore();
     const localTs = new Date().toISOString();
 
@@ -231,7 +231,7 @@ describe('createTranscriptStore', () => {
     });
 
     store.ingest({
-      type: 'chat::message',
+      type: 'chat::echo',
       schema: '1.0',
       session_id: 'sess_test',
       seq: 6,

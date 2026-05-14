@@ -22,6 +22,19 @@ function getClientMsgId(meta: Record<string, unknown>): string | undefined {
   return asNonEmptyString(meta['client_msg_id']) ?? undefined;
 }
 
+function resolveVisibleContent(payload: Record<string, unknown>): unknown {
+  if (payload['content'] !== undefined) {
+    return payload['content'];
+  }
+
+  const message = payload['message'];
+  if (isRecord(message) && message['text'] !== undefined) {
+    return message['text'];
+  }
+
+  return message ?? null;
+}
+
 export function normalizeCortexMessage(message: CortexTransportMessage): ChatMessageViewModel {
   const payload = asPayload(message);
   const payloadMeta = isRecord(payload['meta']) ? payload['meta'] : undefined;
@@ -44,6 +57,23 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         meta: {
           ...mergedMeta,
           ...buildAttachmentMeta(payload),
+        },
+      };
+
+    case 'chat::echo':
+      return {
+        id: buildMessageId(message, 'echo'),
+        seq: message.seq ?? null,
+        type: message.type,
+        role: mapRole(payload['role'], 'user'),
+        content: resolveVisibleContent(payload),
+        status: 'final',
+        ts: message.ts ?? null,
+        clientMsgId: getClientMsgId(mergedMeta),
+        meta: {
+          ...mergedMeta,
+          ...buildAttachmentMeta(payload),
+          ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
         },
       };
 
@@ -77,6 +107,24 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
           ...buildAttachmentMeta(payload),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
           ...(asNonEmptyString(payload['answer_kind']) ? { answerKind: asNonEmptyString(payload['answer_kind']) } : {}),
+        },
+      };
+
+    case 'chat::forward':
+    case 'chat::hail':
+      return {
+        id: buildMessageId(message, message.type === 'chat::forward' ? 'forward' : 'hail'),
+        seq: message.seq ?? null,
+        type: message.type,
+        role: mapRole(payload['role'], 'assistant'),
+        content: resolveVisibleContent(payload),
+        status: 'final',
+        ts: message.ts ?? null,
+        clientMsgId: getClientMsgId(mergedMeta),
+        meta: {
+          ...mergedMeta,
+          ...buildAttachmentMeta(payload),
+          ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
         },
       };
 

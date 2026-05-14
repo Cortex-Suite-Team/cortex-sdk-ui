@@ -16,6 +16,55 @@ describe('normalizeCortexMessage', () => {
     });
   });
 
+  it('normalizes chat::echo as a user message and prefers content over payload.message', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::echo', {
+      content: 'Echo text',
+      role: 'user',
+      meta: {
+        client_msg_id: 'msg_1',
+      },
+      message: {
+        text: 'ignored',
+      },
+    }));
+
+    expect(normalized).toMatchObject({
+      type: 'chat::echo',
+      role: 'user',
+      content: 'Echo text',
+      status: 'final',
+      clientMsgId: 'msg_1',
+    });
+  });
+
+  it('normalizes chat::forward and chat::hail visible content from payload.message.text', () => {
+    const forward = normalizeCortexMessage(createMessage('chat::forward', {
+      role: 'user',
+      message: { text: 'Forwarded text' },
+      meta: {
+        actor: { name: 'Bubble Actor' },
+      },
+    }));
+    const hail = normalizeCortexMessage(createMessage('chat::hail', {
+      role: 'assistant',
+      message: { text: 'Proactive hello' },
+      meta: {
+        actor: { name: 'Bubble Actor' },
+      },
+    }));
+
+    expect(forward).toMatchObject({
+      type: 'chat::forward',
+      role: 'user',
+      content: 'Forwarded text',
+    });
+    expect(hail).toMatchObject({
+      type: 'chat::hail',
+      role: 'assistant',
+      content: 'Proactive hello',
+    });
+  });
+
   it('preserves unknown message types without crashing', () => {
     const normalized = normalizeCortexMessage(createMessage('custom::unknown', {
       foo: 'bar',

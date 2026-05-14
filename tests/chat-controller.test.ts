@@ -426,7 +426,7 @@ describe('sdk-ui controllers', () => {
     expect(userMsg?.deliveryStatus).toBe('sending');
   });
 
-  it('backend echo with matching client_msg_id reconciles optimistic message instead of duplicating it', async () => {
+  it('chat::echo with matching client_msg_id reconciles optimistic message instead of duplicating it', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
@@ -437,7 +437,7 @@ describe('sdk-ui controllers', () => {
     const clientMsgId = optimistic.clientMsgId;
     expect(clientMsgId).toBeTruthy();
 
-    client.emit(createMessage('chat::message', {
+    client.emit(createMessage('chat::echo', {
       content: 'Test',
       role: 'user',
       meta: {
@@ -455,14 +455,14 @@ describe('sdk-ui controllers', () => {
     expect(transcript[0].id).not.toBe(optimistic.id);
   });
 
-  it('backend echo without matching client_msg_id is added as a separate message', async () => {
+  it('chat::echo without matching client_msg_id is added as a separate message', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
     await controller.connect();
     await controller.sendMessage({ content: 'Test' });
 
-    client.emit(createMessage('chat::message', {
+    client.emit(createMessage('chat::echo', {
       content: 'Test',
       role: 'user',
       meta: {
@@ -474,7 +474,7 @@ describe('sdk-ui controllers', () => {
     expect(transcript).toHaveLength(2);
   });
 
-  it('matching backend echo without server timestamp keeps the local provisional timestamp', async () => {
+  it('matching chat::echo without server timestamp keeps the local provisional timestamp', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
@@ -485,7 +485,7 @@ describe('sdk-ui controllers', () => {
     const clientMsgId = optimistic.clientMsgId as string;
 
     client.emit({
-      type: 'chat::message',
+      type: 'chat::echo',
       schema: '1.0',
       session_id: 'sess_test',
       seq: 9,
@@ -503,6 +503,27 @@ describe('sdk-ui controllers', () => {
     expect(transcript[0].deliveryStatus).toBe('sent');
     expect(transcript[0].ts).toBe(optimistic.ts);
     expect(transcript[0].meta?.['timestamp_source']).toBe('client');
+  });
+
+  it('chat::echo does not clear awaiting answer', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.sendMessage({ content: 'Still waiting' });
+
+    expect(controller.getState().input.locked).toBe(true);
+
+    client.emit(createMessage('chat::echo', {
+      content: 'Still waiting',
+      role: 'user',
+      meta: {
+        client_msg_id: controller.getState().transcript[0].clientMsgId,
+      },
+    }, 10));
+
+    expect(controller.getState().input.locked).toBe(true);
+    expect(controller.getState().input.reason).toBe('awaiting_answer');
   });
 
   it('two separate sends with identical text remain distinct because client_msg_id differs', async () => {

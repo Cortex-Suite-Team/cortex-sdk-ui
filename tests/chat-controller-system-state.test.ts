@@ -95,7 +95,7 @@ describe('chat-controller — system::state handling', () => {
     });
   });
 
-  it('chat::message role=user with meta.actor does not overwrite session.correspondent', async () => {
+  it('chat::echo role=user with meta.actor does not overwrite session.correspondent', async () => {
     const client = createMockClient();
     client.sessionContext = {
       sessionId: 'sess_test',
@@ -108,12 +108,42 @@ describe('chat-controller — system::state handling', () => {
     await controller.connect();
 
     client.emit(createMessage('system::opened', { status: 'initializing' }));
-    client.emit(createMessage('chat::message', {
+    client.emit(createMessage('chat::echo', {
       content: 'User echo',
       role: 'user',
       meta: {
         actor: {
           name: 'Bad User Actor',
+        },
+      },
+    }, 2));
+
+    expect(controller.getState().session.correspondent).toMatchObject({
+      name: 'Echo Worker',
+      title: 'Tester',
+    });
+  });
+
+  it('chat::hail meta.actor does not overwrite session.correspondent', async () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        name: 'Echo Worker',
+        title: 'Tester',
+      },
+    };
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::opened', { status: 'initializing' }));
+    client.emit(createMessage('chat::hail', {
+      role: 'assistant',
+      message: { text: 'Hello there' },
+      meta: {
+        actor: {
+          name: 'Different Worker',
+          title: 'Should stay local',
         },
       },
     }, 2));

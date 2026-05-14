@@ -179,7 +179,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       const normalized = normalizeCortexMessage(message);
       const existingIndex = indexById.get(normalized.id);
-      const optimisticIndex = message.type === 'chat::message' && normalized.role === 'user'
+      const optimisticIndex = message.type === 'chat::echo' && normalized.role === 'user'
         ? findMessageIndexByClientMsgId(normalized.clientMsgId)
         : undefined;
 

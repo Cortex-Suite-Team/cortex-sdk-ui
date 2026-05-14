@@ -470,7 +470,7 @@ describe('sdk-ui controllers', () => {
     expect(transcript[0].clientMsgId).toBe(clientMsgId);
     expect(transcript[0].ts).toBe(new Date(7000).toISOString());
     expect(transcript[0].meta?.['timestamp_source']).toBe('server');
-    expect(transcript[0].id).not.toBe(optimistic.id);
+    expect(transcript[0].id).toBe(optimistic.id);
   });
 
   it('chat::echo without matching client_msg_id is added as a separate message', async () => {

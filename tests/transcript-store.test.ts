@@ -205,7 +205,7 @@ describe('createTranscriptStore', () => {
 
     expect(result.mutation?.type).toBe('message_updated');
     expect(result.mutation?.message.deliveryStatus).toBe('processed');
-    expect(result.mutation?.message.id).not.toBe('client:msg_1');
+    expect(result.mutation?.message.id).toBe('client:msg_1');
     expect(result.mutation?.message.ts).toBe(new Date(5000).toISOString());
     expect(result.mutation?.message.meta?.['timestamp_source']).toBe('server');
     expect(store.getSnapshot()).toHaveLength(1);

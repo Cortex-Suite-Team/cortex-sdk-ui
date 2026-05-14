@@ -105,7 +105,10 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
     return {
       ...normalized,
-      id: normalized.id,
+      // Keep the original optimistic bubble identity stable across echo reconciliation.
+      // Server seq/ts still become authoritative when present, but the logical user
+      // message id should not change underneath the UI.
+      id: existing.id,
       clientMsgId: normalized.clientMsgId ?? existing.clientMsgId,
       deliveryStatus: 'processed',
       retryable: false,

@@ -40,6 +40,90 @@ describe('chat-controller — system::state handling', () => {
     expect(controller.getState().transcript).toHaveLength(0);
   });
 
+  it('computeState keeps the same correspondent after unrelated chat message ingestion', async () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        name: 'Echo Worker',
+        title: 'Tester',
+      },
+    };
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::opened', { status: 'initializing' }));
+    client.emit(createMessage('chat::partial', {
+      content: 'Working on it',
+      role: 'assistant',
+    }, 2));
+
+    expect(controller.getState().session.correspondent).toMatchObject({
+      name: 'Echo Worker',
+      title: 'Tester',
+    });
+  });
+
+  it('chat::answer meta.actor does not overwrite session.correspondent', async () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        name: 'Echo Worker',
+        title: 'Tester',
+      },
+    };
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::opened', { status: 'initializing' }));
+    client.emit(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      answer_kind: 'final',
+      meta: {
+        actor: {
+          name: 'Different Worker',
+          title: 'Should stay local',
+        },
+      },
+    }, 2));
+
+    expect(controller.getState().session.correspondent).toMatchObject({
+      name: 'Echo Worker',
+      title: 'Tester',
+    });
+  });
+
+  it('chat::message role=user with meta.actor does not overwrite session.correspondent', async () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        name: 'Echo Worker',
+        title: 'Tester',
+      },
+    };
+    const controller = createChatController({ client });
+    await controller.connect();
+
+    client.emit(createMessage('system::opened', { status: 'initializing' }));
+    client.emit(createMessage('chat::message', {
+      content: 'User echo',
+      role: 'user',
+      meta: {
+        actor: {
+          name: 'Bad User Actor',
+        },
+      },
+    }, 2));
+
+    expect(controller.getState().session.correspondent).toMatchObject({
+      name: 'Echo Worker',
+      title: 'Tester',
+    });
+  });
+
   it('system::lifecycle busy and idle update workerState without transcript mutation', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });

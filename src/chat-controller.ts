@@ -67,7 +67,7 @@ function generateClientMsgId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
-function getSessionCorrespondent(client: ChatControllerOptions['client']): ChatState['session']['correspondent'] {
+function getSessionContextCorrespondent(client: ChatControllerOptions['client']): ChatState['session']['correspondent'] {
   const rawSessionContext = client.sessionContext;
   if (isRecord(rawSessionContext) && isRecord(rawSessionContext['correspondent'])) {
     const contextCorrespondent = rawSessionContext['correspondent'];
@@ -83,30 +83,7 @@ function getSessionCorrespondent(client: ChatControllerOptions['client']): ChatS
       };
     }
   }
-
-  const rawMeta = client.sessionMeta;
-  if (!isRecord(rawMeta)) {
-    return null;
-  }
-
-  const rawCorrespondent = rawMeta['chat_correspondent'];
-  if (!isRecord(rawCorrespondent)) {
-    return null;
-  }
-
-  const name = asNonEmptyString(rawCorrespondent['name']);
-  if (!name) {
-    return null;
-  }
-
-  return {
-    kind: asNonEmptyString(rawCorrespondent['kind']) ?? undefined,
-    id: asNonEmptyString(rawCorrespondent['id']) ?? null,
-    name,
-    title: asNonEmptyString(rawCorrespondent['title']) ?? null,
-    subtitle: asNonEmptyString(rawCorrespondent['subtitle']) ?? null,
-    avatarUrl: asNonEmptyString(rawCorrespondent['avatar_url']) ?? null,
-  };
+  return null;
 }
 
 function summarizeSendPayload(payload: {
@@ -138,7 +115,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let workerState: WorkerState = { state: 'idle' };
   let workerStateTtlTimer: ReturnType<typeof setTimeout> | null = null;
   let awaitingAnswer = false;
-  let sessionCorrespondent = getSessionCorrespondent(options.client);
+  let sessionCorrespondent: ChatState['session']['correspondent'] = null;
   let sessionStateOverride: string | null = null;
 
   const escalationController = createEscalationController({
@@ -299,10 +276,6 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     workerState = { state: 'idle' };
   }
 
-  function refreshSessionSnapshot(): void {
-    sessionCorrespondent = getSessionCorrespondent(options.client);
-  }
-
   function applySessionStateOverride(nextState: string | null): void {
     if (nextState === null) {
       sessionStateOverride = null;
@@ -326,7 +299,10 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   }
 
   function handleSystemOpened(): void {
-    refreshSessionSnapshot();
+    const openedCorrespondent = getSessionContextCorrespondent(options.client);
+    if (openedCorrespondent) {
+      sessionCorrespondent = openedCorrespondent;
+    }
     applySessionStateOverride('ACTIVE');
   }
 

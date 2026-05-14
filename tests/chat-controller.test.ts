@@ -25,22 +25,10 @@ describe('sdk-ui controllers', () => {
     expect(client.activeListenerCount()).toBe(1);
   });
 
-  it('populates session.correspondent from client sessionMeta', () => {
+  it('starts with session.correspondent unset before system::opened', () => {
     const client = createMockClient();
-    client.sessionMeta = {
-      chat_correspondent: {
-        kind: 'digital_worker',
-        id: 'project_123',
-        name: 'Robot Vasya',
-        title: 'Legal Assistant',
-        subtitle: 'Contract review worker',
-        avatar_url: 'https://example.test/avatar.png',
-      },
-    };
-
-    const controller = createChatController({ client });
-
-    expect(controller.getState().session).toEqual({
+    client.sessionContext = {
+      sessionId: 'sess_test',
       correspondent: {
         kind: 'digital_worker',
         id: 'project_123',
@@ -49,10 +37,14 @@ describe('sdk-ui controllers', () => {
         subtitle: 'Contract review worker',
         avatarUrl: 'https://example.test/avatar.png',
       },
-    });
+    };
+
+    const controller = createChatController({ client });
+
+    expect(controller.getState().session.correspondent).toBeNull();
   });
 
-  it('prefers sessionContext.correspondent over legacy sessionMeta', () => {
+  it('system::opened sets session.correspondent from client sessionContext.correspondent', async () => {
     const client = createMockClient();
     client.sessionContext = {
       sessionId: 'sess_test',
@@ -65,17 +57,16 @@ describe('sdk-ui controllers', () => {
         avatarUrl: null,
       },
     };
-    client.sessionMeta = {
-      chat_correspondent: {
-        kind: 'digital_worker',
-        id: 'project_legacy',
-        name: 'Legacy Worker',
-      },
-    };
-
     const controller = createChatController({ client });
+    await controller.connect();
+    client.emit(createMessage('system::opened', { status: 'initializing' }));
 
-    expect(controller.getState().session.correspondent?.name).toBe('Context Worker');
+    expect(controller.getState().session.correspondent).toMatchObject({
+      kind: 'digital_worker',
+      id: 'project_ctx',
+      name: 'Context Worker',
+      title: 'Trusted Identity',
+    });
   });
 
   it('sendMessage does not overwrite session-level correspondent state', async () => {
@@ -89,6 +80,8 @@ describe('sdk-ui controllers', () => {
       },
     };
     const controller = createChatController({ client });
+    await controller.connect();
+    client.emit(createMessage('system::opened', { status: 'initializing' }));
 
     await controller.sendMessage({
       content: 'Hello',
@@ -106,18 +99,27 @@ describe('sdk-ui controllers', () => {
     });
   });
 
-  it('returns session.correspondent null for malformed or missing client sessionMeta', () => {
+  it('returns session.correspondent null when system::opened has no correspondent in client sessionContext', async () => {
     const malformedClient = createMockClient();
-    malformedClient.sessionMeta = {
-      chat_correspondent: {
+    malformedClient.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
         title: 'Missing name',
-      },
+      } as never,
     };
 
     const missingClient = createMockClient();
 
-    expect(createChatController({ client: malformedClient }).getState().session.correspondent).toBeNull();
-    expect(createChatController({ client: missingClient }).getState().session.correspondent).toBeNull();
+    const malformedController = createChatController({ client: malformedClient });
+    const missingController = createChatController({ client: missingClient });
+
+    await malformedController.connect();
+    await missingController.connect();
+    malformedClient.emit(createMessage('system::opened', { status: 'initializing' }));
+    missingClient.emit(createMessage('system::opened', { status: 'initializing' }));
+
+    expect(malformedController.getState().session.correspondent).toBeNull();
+    expect(missingController.getState().session.correspondent).toBeNull();
   });
 
   it('repeated connect or sendMessage does not duplicate subscription', async () => {

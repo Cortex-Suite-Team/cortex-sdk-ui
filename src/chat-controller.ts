@@ -194,12 +194,16 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   function computeState(): ChatState {
     const channelState = getChannelState();
     const sessionState = getSessionState();
+    const sessionId = getSessionId();
+    const sessionReady = isSessionReady();
     const escalation = escalationController.getState();
     const input = options.inputLockPolicy
       ? options.inputLockPolicy({
           mode: options.mode ?? 'end_user',
           channelState,
           sessionState,
+          sessionId,
+          isSessionReady: sessionReady,
           escalation,
         })
       : defaultInputLockPolicy();
@@ -211,8 +215,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       connection: {
         channelState,
         sessionState,
-        sessionId: getSessionId(),
-        isSessionReady: isSessionReady(),
+        sessionId,
+        isSessionReady: sessionReady,
         isConnected: channelState === 'OPEN',
         isStale: channelState === 'STALE' || channelState === 'RECONNECTING',
       },

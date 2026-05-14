@@ -186,6 +186,8 @@ export interface ChatControllerOptions {
     mode: 'end_user' | 'operator';
     channelState: string;
     sessionState: string;
+    sessionId: string | null;
+    isSessionReady: boolean;
     escalation: EscalationState | null;
   }) => { locked: boolean; reason?: string };
 }

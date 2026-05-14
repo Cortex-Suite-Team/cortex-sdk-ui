@@ -169,6 +169,36 @@ describe('sdk-ui controllers', () => {
     });
   });
 
+  it('passes session readiness fields into custom inputLockPolicy', () => {
+    const client = createMockClient();
+    client.channelState = 'OPEN';
+    client.sessionId = 'sess_policy';
+
+    const seenArgs: Array<Record<string, unknown>> = [];
+    const inputLockPolicy = (args: {
+      channelState: string;
+      sessionState: string;
+      sessionId: string | null;
+      isSessionReady: boolean;
+    }) => {
+      seenArgs.push(args);
+      return { locked: false as const };
+    };
+    const controller = createChatController({
+      client,
+      inputLockPolicy,
+    });
+
+    controller.getState();
+
+    expect(seenArgs[0]).toEqual(expect.objectContaining({
+      channelState: 'OPEN',
+      sessionState: 'ACTIVE',
+      sessionId: 'sess_policy',
+      isSessionReady: true,
+    }));
+  });
+
   it('sendMessage creates optimistic user message with provisional timestamp and sending state', async () => {
     const client = createMockClient();
     const controller = createChatController({

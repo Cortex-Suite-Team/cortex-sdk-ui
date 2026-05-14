@@ -76,6 +76,24 @@ function getSessionCorrespondent(client: ChatControllerOptions['client']): ChatS
   };
 }
 
+function summarizeSendPayload(payload: {
+  content?: unknown;
+  attachments?: unknown[];
+  meta?: Record<string, unknown>;
+}) {
+  return {
+    contentKind: Array.isArray(payload.content) ? 'array' : typeof payload.content,
+    contentLength: Array.isArray(payload.content) ? payload.content.length : undefined,
+    hasAttachments: Boolean(payload.attachments?.length),
+    attachmentCount: payload.attachments?.length ?? 0,
+    metaKeys: payload.meta ? Object.keys(payload.meta) : [],
+    clientMsgId:
+      payload.meta && typeof payload.meta.client_msg_id === 'string'
+        ? payload.meta.client_msg_id
+        : undefined,
+  };
+}
+
 export function createChatController(options: ChatControllerOptions): ChatController {
   const listeners = new Set<(state: ChatState) => void>();
   const transcriptStore = createTranscriptStore();
@@ -365,7 +383,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
 
       try {
-        console.debug('[sdk-ui] sendMessage -> client.sendMessage start', sendPayload);
+        console.debug('[sdk-ui] sendMessage -> client.sendMessage start', summarizeSendPayload(sendPayload));
         await withTimeout(
           options.client.sendMessage(sendPayload),
           MESSAGE_SEND_TIMEOUT_MS,
@@ -406,7 +424,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
 
       try {
-        console.debug('[sdk-ui] retryMessage -> client.sendMessage start', msg.originalPayload);
+        console.debug('[sdk-ui] retryMessage -> client.sendMessage start', summarizeSendPayload(msg.originalPayload));
         await withTimeout(
           options.client.sendMessage(msg.originalPayload),
           MESSAGE_SEND_TIMEOUT_MS,

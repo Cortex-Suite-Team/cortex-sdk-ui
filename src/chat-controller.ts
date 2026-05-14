@@ -36,10 +36,17 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, msg: strin
       promise,
       new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error(msg)), timeoutMs);
+        unrefTimer(timer);
       }),
     ]);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+function unrefTimer(timer: ReturnType<typeof setTimeout> | undefined): void {
+  if (timer && typeof (timer as { unref?: () => void }).unref === 'function') {
+    (timer as { unref: () => void }).unref();
   }
 }
 
@@ -270,6 +277,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         workerStateTtlTimer = null;
         emitStateChanged();
       }, remaining);
+      unrefTimer(workerStateTtlTimer);
     }
   }
 

@@ -51,6 +51,32 @@ describe('sdk-ui controllers', () => {
     });
   });
 
+  it('prefers sessionContext.correspondent over legacy sessionMeta', () => {
+    const client = createMockClient();
+    client.sessionContext = {
+      sessionId: 'sess_test',
+      correspondent: {
+        kind: 'digital_worker',
+        id: 'project_ctx',
+        name: 'Context Worker',
+        title: 'Trusted Identity',
+        subtitle: null,
+        avatarUrl: null,
+      },
+    };
+    client.sessionMeta = {
+      chat_correspondent: {
+        kind: 'digital_worker',
+        id: 'project_legacy',
+        name: 'Legacy Worker',
+      },
+    };
+
+    const controller = createChatController({ client });
+
+    expect(controller.getState().session.correspondent?.name).toBe('Context Worker');
+  });
+
   it('returns session.correspondent null for malformed or missing client sessionMeta', () => {
     const malformedClient = createMockClient();
     malformedClient.sessionMeta = {
@@ -110,6 +136,37 @@ describe('sdk-ui controllers', () => {
     expect(typeof result.messageId).toBe('string');
     expect(result.messageId.startsWith('client:')).toBe(true);
     expect(typeof result.clientMsgId).toBe('string');
+    expect(controller.getState().input).toMatchObject({
+      locked: true,
+      reason: 'awaiting_answer',
+    });
+  });
+
+  it('locks input while the session is opening', () => {
+    const client = createMockClient();
+    client.channelState = 'CONNECTING';
+    client.sessionId = null;
+
+    const controller = createChatController({ client });
+
+    expect(controller.getState().input).toEqual({
+      locked: true,
+      reason: 'session_opening',
+    });
+  });
+
+  it('locks input when the channel is open but session is not ready', () => {
+    const client = createMockClient();
+    client.channelState = 'OPEN';
+    client.sessionId = null;
+    client.sessionState = 'INITIALIZING';
+
+    const controller = createChatController({ client });
+
+    expect(controller.getState().input).toEqual({
+      locked: true,
+      reason: 'session_not_ready',
+    });
   });
 
   it('sendMessage creates optimistic user message with provisional timestamp and sending state', async () => {

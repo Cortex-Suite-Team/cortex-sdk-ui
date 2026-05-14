@@ -11,6 +11,7 @@ export interface MockClient extends CortexClientLike {
   emit(message: CortexTransportMessage): void;
   sessionId: string | null;
   sessionMeta?: Record<string, unknown> | null;
+  sessionContext?: CortexClientLike['sessionContext'];
   sessionState: string;
   channelState: string;
   connectCalls: number;
@@ -35,6 +36,7 @@ export function createMockClient(overrides: {
     escalationReplies,
     sessionId: 'sess_test',
     sessionMeta: null,
+    sessionContext: null,
     sessionState: 'ACTIVE',
     channelState: 'OPEN',
     connectCalls: 0,

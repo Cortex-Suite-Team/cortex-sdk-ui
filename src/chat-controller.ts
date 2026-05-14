@@ -51,6 +51,22 @@ function generateClientMsgId(): string {
 }
 
 function getSessionCorrespondent(client: ChatControllerOptions['client']): ChatState['session']['correspondent'] {
+  const rawSessionContext = client.sessionContext;
+  if (isRecord(rawSessionContext) && isRecord(rawSessionContext['correspondent'])) {
+    const contextCorrespondent = rawSessionContext['correspondent'];
+    const name = asNonEmptyString(contextCorrespondent['name']);
+    if (name) {
+      return {
+        kind: asNonEmptyString(contextCorrespondent['kind']) ?? undefined,
+        id: asNonEmptyString(contextCorrespondent['id']) ?? null,
+        name,
+        title: asNonEmptyString(contextCorrespondent['title']) ?? null,
+        subtitle: asNonEmptyString(contextCorrespondent['subtitle']) ?? null,
+        avatarUrl: asNonEmptyString(contextCorrespondent['avatarUrl']) ?? null,
+      };
+    }
+  }
+
   const rawMeta = client.sessionMeta;
   if (!isRecord(rawMeta)) {
     return null;
@@ -103,6 +119,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let activeQuestion: QuestionState | null = null;
   let workerState: WorkerState = { state: 'idle' };
   let workerStateTtlTimer: ReturnType<typeof setTimeout> | null = null;
+  let awaitingAnswer = false;
 
   const escalationController = createEscalationController({
     client: options.client,
@@ -124,14 +141,43 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     return options.client.sessionState ?? 'CREATED';
   }
 
+  function getSessionId(): string | null {
+    return options.client.sessionId ?? options.client.sessionContext?.sessionId ?? null;
+  }
+
+  function isSessionReady(): boolean {
+    return getChannelState() === 'OPEN' && getSessionId() !== null;
+  }
+
   function defaultInputLockPolicy() {
     const sessionState = getSessionState();
     const escalation = escalationController.getState();
+
+    if (getChannelState() === 'CONNECTING' || getChannelState() === 'RECONNECTING') {
+      return {
+        locked: true,
+        reason: 'session_opening',
+      };
+    }
+
+    if (!isSessionReady()) {
+      return {
+        locked: true,
+        reason: 'session_not_ready',
+      };
+    }
 
     if (TERMINAL_SESSION_STATES.has(sessionState)) {
       return {
         locked: true,
         reason: `session_${sessionState.toLowerCase()}`,
+      };
+    }
+
+    if (awaitingAnswer) {
+      return {
+        locked: true,
+        reason: 'awaiting_answer',
       };
     }
 
@@ -165,6 +211,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       connection: {
         channelState,
         sessionState,
+        sessionId: getSessionId(),
+        isSessionReady: isSessionReady(),
         isConnected: channelState === 'OPEN',
         isStale: channelState === 'STALE' || channelState === 'RECONNECTING',
       },
@@ -273,6 +321,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     }
 
     if (message.type === 'chat::question') {
+      awaitingAnswer = false;
       resetWorkerStateToIdle();
       const payload = asPayload(message);
       const meta = isRecord(payload['meta']) ? payload['meta'] : null;
@@ -293,8 +342,17 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     }
 
     if (message.type === 'chat::answer' || message.type === 'system::error') {
+      awaitingAnswer = false;
       activeQuestion = null;
       resetWorkerStateToIdle();
+    }
+
+    if (message.type === 'sandbox::lifecycle') {
+      const payload = asPayload(message);
+      const status = asNonEmptyString(payload['status'])?.toLowerCase() ?? null;
+      if (status && ['completed', 'failed', 'stopped', 'timeout', 'cancelled'].includes(status)) {
+        awaitingAnswer = false;
+      }
     }
 
     if (message.type === 'system::error') {
@@ -339,6 +397,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     },
 
     async disconnect() {
+      awaitingAnswer = false;
       if (options.client.disconnect) {
         await options.client.disconnect();
       }
@@ -389,12 +448,15 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
+        awaitingAnswer = true;
         console.debug('[sdk-ui] sendMessage -> client.sendMessage done', {
           clientMsgId,
           ok: true,
         });
+        emitStateChanged();
         return { ok: true, messageId: id, clientMsgId };
       } catch (err) {
+        awaitingAnswer = false;
         console.debug('[sdk-ui] sendMessage -> client.sendMessage failed', {
           clientMsgId,
           error: err instanceof Error ? err.message : String(err),
@@ -430,12 +492,15 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
+        awaitingAnswer = true;
         console.debug('[sdk-ui] retryMessage -> client.sendMessage done', {
           clientMsgId,
           ok: true,
         });
+        emitStateChanged();
         return { ok: true, messageId, clientMsgId };
       } catch (err) {
+        awaitingAnswer = false;
         console.debug('[sdk-ui] retryMessage -> client.sendMessage failed', {
           clientMsgId,
           error: err instanceof Error ? err.message : String(err),

@@ -58,6 +58,18 @@ export interface CortexClientLike {
   onMessage(handler: (message: CortexTransportMessage) => void): () => void;
   sessionId?: string | null;
   sessionMeta?: Record<string, unknown> | null;
+  sessionContext?: {
+    sessionId: string;
+    identity?: Record<string, unknown> | null;
+    correspondent?: {
+      kind?: string | null;
+      id?: string | null;
+      name: string;
+      title?: string | null;
+      subtitle?: string | null;
+      avatarUrl?: string | null;
+    } | null;
+  } | null;
   sessionState?: string;
   channelState?: string;
 }
@@ -127,6 +139,8 @@ export interface ChatState {
   connection: {
     channelState: string;
     sessionState: string;
+    sessionId: string | null;
+    isSessionReady: boolean;
     isConnected: boolean;
     isStale: boolean;
   };

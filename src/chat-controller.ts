@@ -6,6 +6,7 @@ import { createDebugLogger } from './debug.js';
 import { createEscalationController } from './escalation-controller.js';
 import { createTranscriptStore } from './transcript-store.js';
 import type {
+  ChatAuthState,
   ChatController,
   ChatControllerEvent,
   ChatControllerOptions,
@@ -117,6 +118,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let awaitingAnswer = false;
   let sessionCorrespondent: ChatState['session']['correspondent'] = null;
   let sessionStateOverride: string | null = null;
+  let authState: ChatAuthState = { state: 'none' };
 
   const escalationController = createEscalationController({
     client: options.client,
@@ -147,6 +149,14 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   }
 
   function defaultInputLockPolicy() {
+    if (
+      authState.state === 'required'
+      || authState.state === 'submitting'
+      || authState.state === 'denied'
+    ) {
+      return { locked: true, reason: 'auth_required' };
+    }
+
     const sessionState = getSessionState();
     const escalation = escalationController.getState();
 
@@ -219,6 +229,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       },
       transcript: transcriptStore.getSnapshot().map((message) => cloneMessage(message)),
       input,
+      auth: { ...authState },
       escalation: cloneEscalation(escalation),
       lastError,
       activeQuestion: activeQuestion
@@ -396,6 +407,22 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       return;
     }
 
+    if (message.type === 'system::auth') {
+      const payload = asPayload(message);
+      const state = asNonEmptyString(payload['state']);
+      if (state === 'required' || state === 'denied' || state === 'accepted') {
+        const msg = asNonEmptyString(payload['message']) ?? undefined;
+        const method = asNonEmptyString(payload['method']);
+        authState = {
+          state,
+          message: msg,
+          method: method === 'login_password' ? 'login_password' : undefined,
+        };
+        emitStateChanged();
+      }
+      return;
+    }
+
     const result = transcriptStore.ingest(message);
     if (result.mutation) {
       emit({
@@ -492,6 +519,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     async disconnect() {
       awaitingAnswer = false;
       sessionStateOverride = null;
+      authState = { state: 'none' };
       if (options.client.disconnect) {
         await options.client.disconnect();
       }
@@ -615,6 +643,26 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'failed', retryable: true, sendError });
         emitStateChanged();
         return { ok: false, messageId, clientMsgId, error: sendError };
+      }
+    },
+
+    async submitLogin(credentials: { login: string; password: string }): Promise<{ ok: boolean; error?: string }> {
+      if (!options.client.sendLogin) {
+        return { ok: false, error: 'auth_not_supported' };
+      }
+      authState = { ...authState, state: 'submitting' };
+      emitStateChanged();
+      try {
+        await options.client.sendLogin(credentials);
+        return { ok: true };
+      } catch (err) {
+        authState = {
+          state: 'denied',
+          message: 'Login failed',
+          method: authState.method,
+        };
+        emitStateChanged();
+        return { ok: false, error: err instanceof Error ? err.message : 'Login failed' };
       }
     },
 

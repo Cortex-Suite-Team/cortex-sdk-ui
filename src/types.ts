@@ -60,6 +60,7 @@ export interface CortexClientLike {
   connect(): Promise<void>;
   disconnect?(): Promise<void>;
   sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<void>;
+  sendLogin?(credentials: { login: string; password: string }): Promise<void>;
   replyEscalation?(options: ReplyEscalationRequest): Promise<void>;
   onMessage(handler: (message: CortexTransportMessage) => void): () => void;
   sessionId?: string | null;
@@ -78,6 +79,12 @@ export interface CortexClientLike {
   } | null;
   sessionState?: string;
   channelState?: string;
+}
+
+export interface ChatAuthState {
+  state: 'none' | 'required' | 'submitting' | 'denied' | 'accepted';
+  message?: string;
+  method?: 'login_password';
 }
 
 export interface ChatCorrespondent {
@@ -155,6 +162,7 @@ export interface ChatState {
     locked: boolean;
     reason?: string;
   };
+  auth: ChatAuthState;
   escalation: EscalationState | null;
   lastError: ChatErrorViewModel | null;
   activeQuestion: QuestionState | null;
@@ -251,6 +259,7 @@ export interface ChatController {
   disconnect(): Promise<void>;
   sendMessage(options: { content: unknown; attachments?: unknown[]; meta?: Record<string, unknown> }): Promise<SendMessageResult>;
   retryMessage(messageId: string): Promise<SendMessageResult | null>;
+  submitLogin(credentials: { login: string; password: string }): Promise<{ ok: boolean; error?: string }>;
   replyToUser(content: EscalationReplyContent): Promise<void>;
   returnToWorker(content: EscalationReplyContent): Promise<void>;
   continueWorker(content?: EscalationReplyContent): Promise<void>;

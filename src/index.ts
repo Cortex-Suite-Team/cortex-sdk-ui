@@ -1,4 +1,9 @@
 export { createChatController } from './chat-controller.js';
+export {
+  renderAssistantMarkdown,
+  renderChatMessageContent,
+  renderUserText,
+} from './content-render.js';
 export { createEscalationController } from './escalation-controller.js';
 export { createTranscriptStore } from './transcript-store.js';
 export { normalizeCortexMessage } from './normalize.js';
@@ -10,10 +15,10 @@ export type {
   ChatControllerOptions,
   ChatCorrespondent,
   ChatErrorViewModel,
-  ChatMessageDeliveryStatus,
+  ChatMessageViewModel,
   ChatMessageRole,
   ChatMessageStatus,
-  ChatMessageViewModel,
+  ChatMessageDeliveryStatus,
   ChatSessionState,
   ChatState,
   CortexClientLike,
@@ -27,6 +32,7 @@ export type {
   QuestionState,
   ReplyEscalationRequest,
   ReplyRequestBuilderArgs,
+  RenderedChatContent,
   SendMessageResult,
   TranscriptStore,
   TranscriptStoreOptions,

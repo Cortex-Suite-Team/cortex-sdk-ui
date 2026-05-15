@@ -161,6 +161,15 @@ export interface ChatState {
   workerState: WorkerState;
 }
 
+export type RenderedChatContent =
+  | { format: 'html'; html: string; kind: 'assistant_markdown' }
+  | {
+    format: 'text';
+    text: string;
+    style: 'plain' | 'preformatted';
+    kind: 'plain_text' | 'structured_fallback';
+  };
+
 export type ChatControllerEvent =
   | { type: 'state_changed'; state: ChatState }
   | { type: 'message_added'; message: ChatMessageViewModel }

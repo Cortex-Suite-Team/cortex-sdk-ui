@@ -158,4 +158,20 @@ describe('normalizeCortexMessage', () => {
       }],
     });
   });
+
+  it('preserves payload.meta.chat_title in ChatMessageViewModel.meta and does not render it as content', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Here is the answer.',
+      role: 'assistant',
+      answer_kind: 'final',
+      turn_id: 'turn_title',
+      meta: {
+        chat_title: 'Contract Review Session',
+      },
+    }));
+
+    expect(normalized.meta?.chat_title).toBe('Contract Review Session');
+    expect(normalized.content).toBe('Here is the answer.');
+    expect(String(normalized.content)).not.toContain('Contract Review Session');
+  });
 });

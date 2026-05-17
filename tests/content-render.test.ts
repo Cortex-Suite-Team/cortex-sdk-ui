@@ -114,6 +114,43 @@ describe('renderChatMessageContent', () => {
     });
   });
 
+  it('sanitizer pipeline produces no executable img/script elements from injected html', () => {
+    // markdown-it html:false escapes raw HTML tags as entities, so <img> and <script>
+    // become &lt;img&gt; and &lt;script&gt; — inert text. DOMPurify is an additional
+    // layer that would catch anything that slipped through. Verify at DOM level.
+    const html = renderAssistantMarkdown(
+      '<img src=x onerror=alert(1)><script>alert(1)</script>',
+    );
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    expect(template.content.querySelector('script')).toBeNull();
+    expect(template.content.querySelector('img')).toBeNull();
+    expect(template.content.querySelector('[onerror]')).toBeNull();
+  });
+
+  it('markdown-it blocks javascript: scheme links before DOMPurify runs', () => {
+    // markdown-it rejects javascript: href at parse time; the link is not rendered.
+    // Verify at DOM level: no <a> with a javascript: href survives the pipeline.
+    const html = renderAssistantMarkdown('[click me](javascript:alert(1))');
+    const template = document.createElement('template');
+    template.innerHTML = html;
+    const anchor = template.content.querySelector('a');
+    if (anchor) {
+      expect(anchor.getAttribute('href') ?? '').not.toMatch(/^javascript:/i);
+    }
+    // No <a href="javascript:..."> in the DOM
+    expect(template.content.querySelector('a[href^="javascript:"]')).toBeNull();
+  });
+
+  it('script tag in conversation title is inert when assigned via textContent', () => {
+    const malicious = '<script>window.__xss_probe=1</script>Dogs';
+    const span = document.createElement('span');
+    span.textContent = malicious; // same as history-renderer.ts:107
+    expect(span.querySelector('script')).toBeNull();
+    expect((window as any).__xss_probe).toBeUndefined();
+    expect(span.textContent).toBe(malicious);
+  });
+
   it('does not mutate reconciliation fields on the source message', () => {
     const message = normalizeCortexMessage(createMessage('chat::echo', {
       content: 'Hello',

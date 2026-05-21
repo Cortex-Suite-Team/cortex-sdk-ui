@@ -49,7 +49,9 @@ export interface QuestionOption {
 }
 
 export interface QuestionState {
-  question_id: string;
+  question_ref: string;
+  /** Legacy fallback accepted on inbound chat::question during transition. */
+  question_id?: string;
   input_type: string;
   allow_reply: boolean;
   options: QuestionOption[];

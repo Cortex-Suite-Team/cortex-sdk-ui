@@ -272,12 +272,12 @@ describe('sdk-ui controllers', () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
-    await controller.sendMessage({ content: 'Hi', meta: { question_id: 'q1' } });
+    await controller.sendMessage({ content: 'Hi', meta: { question_ref: 'q1' } });
 
     expect(client.sentMessages).toHaveLength(1);
     const sent = client.sentMessages[0];
     expect(sent.content).toBe('Hi');
-    expect(sent.meta).toMatchObject({ question_id: 'q1' });
+    expect(sent.meta).toMatchObject({ question_ref: 'q1' });
     expect(typeof sent.meta?.['client_msg_id']).toBe('string');
     expect((sent.meta?.['client_msg_id'] as string).length).toBeGreaterThan(0);
   });
@@ -288,14 +288,14 @@ describe('sdk-ui controllers', () => {
 
     await controller.sendMessage({
       content: ['Approve'],
-      meta: { question_id: 'q_1', selected_option: 'approve' },
+      meta: { question_ref: 'q_1', selected_option: 'approve' },
     });
 
     expect(client.sentMessages).toHaveLength(1);
     expect(client.sentMessages[0]).toMatchObject({
       content: ['Approve'],
       meta: {
-        question_id: 'q_1',
+        question_ref: 'q_1',
         selected_option: 'approve',
       },
     });
@@ -760,7 +760,7 @@ describe('sdk-ui controllers', () => {
       content: 'Choose one',
       turn_id: 'turn_q1',
       meta: {
-        question_id: 'q_1',
+        question_ref: 'q_1',
         input_type: 'radio',
         allow_reply: true,
         options: [
@@ -771,7 +771,7 @@ describe('sdk-ui controllers', () => {
     }));
 
     expect(controller.getState().activeQuestion).toMatchObject({
-      question_id: 'q_1',
+      question_ref: 'q_1',
       input_type: 'radio',
       allow_reply: true,
       options: [
@@ -783,6 +783,28 @@ describe('sdk-ui controllers', () => {
     expect(controller.getState().transcript[0].type).toBe('chat::question');
   });
 
+  it('accepts legacy question_id as inbound fallback for chat::question', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Choose one',
+      meta: {
+        question_id: 'legacy_q_1',
+        input_type: 'radio',
+        allow_reply: true,
+        options: [{ id: 'a', label: 'Option A' }],
+      },
+    }));
+
+    expect(controller.getState().activeQuestion).toMatchObject({
+      question_ref: 'legacy_q_1',
+      question_id: 'legacy_q_1',
+    });
+  });
+
   it('clears activeQuestion on chat::answer', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
@@ -792,14 +814,14 @@ describe('sdk-ui controllers', () => {
       role: 'assistant',
       content: 'Choose one',
       meta: {
-        question_id: 'q_2',
+        question_ref: 'q_2',
         input_type: 'radio',
         allow_reply: false,
         options: [{ id: 'a', label: 'Option A' }],
       },
     }, 1));
 
-    expect(controller.getState().activeQuestion?.question_id).toBe('q_2');
+    expect(controller.getState().activeQuestion?.question_ref).toBe('q_2');
 
     client.emit(createMessage('chat::answer', {
       role: 'assistant',
@@ -820,7 +842,7 @@ describe('sdk-ui controllers', () => {
       role: 'assistant',
       content: 'Choose one',
       meta: {
-        question_id: 'q_3',
+        question_ref: 'q_3',
         input_type: 'radio',
         allow_reply: true,
         options: [{ id: 'a', label: 'Option A' }],
@@ -846,7 +868,7 @@ describe('sdk-ui controllers', () => {
       role: 'assistant',
       content: 'Choose',
       meta: {
-        question_id: 'q_4',
+        question_ref: 'q_4',
         input_type: 'radio',
         allow_reply: false,
         options: [
@@ -869,12 +891,12 @@ describe('sdk-ui controllers', () => {
 
     await controller.sendMessage({
       content: ['Approve'],
-      meta: { question_id: 'q_1', selected_option: 'approve' },
+      meta: { question_ref: 'q_1', selected_option: 'approve' },
     });
 
     expect(client.sentMessages[0]).toMatchObject({
       content: ['Approve'],
-      meta: { question_id: 'q_1', selected_option: 'approve' },
+      meta: { question_ref: 'q_1', selected_option: 'approve' },
     });
   });
 

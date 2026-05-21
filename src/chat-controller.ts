@@ -445,11 +445,15 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       resetWorkerStateToIdle();
       const payload = asPayload(message);
       const meta = isRecord(payload['meta']) ? payload['meta'] : null;
-      const questionId = meta ? asNonEmptyString(meta['question_id']) : null;
-      if (questionId) {
+      const questionRef = meta
+        ? (asNonEmptyString(meta['question_ref']) ?? asNonEmptyString(meta['question_id']))
+        : null;
+      const legacyQuestionId = meta ? asNonEmptyString(meta['question_id']) : null;
+      if (questionRef) {
         const rawOptions = Array.isArray(meta?.['options']) ? meta['options'] as unknown[] : [];
         activeQuestion = {
-          question_id: questionId,
+          question_ref: questionRef,
+          ...(legacyQuestionId ? { question_id: legacyQuestionId } : {}),
           input_type: asNonEmptyString(meta?.['input_type']) ?? 'radio',
           allow_reply: meta?.['allow_reply'] === true,
           options: (rawOptions as unknown[])

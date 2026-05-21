@@ -273,7 +273,7 @@ describe('chat-controller — system::state handling', () => {
       content: ['Choose:'],
       role: 'assistant',
       meta: {
-        question_id: 'q1',
+        question_ref: 'q1',
         input_type: 'radio',
         allow_reply: false,
         options: [{ id: 'a', label: 'A' }],

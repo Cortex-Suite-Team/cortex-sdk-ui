@@ -82,7 +82,7 @@ describe('normalizeCortexMessage', () => {
       turn_id: 'turn_q1',
       meta: {
         actor: { kind: 'digital_worker', id: 'proj_1', name: 'Robot Vasya', title: 'Lawyer' },
-        question_id: 'q_123',
+        question_ref: 'q_123',
         input_type: 'radio',
         allow_reply: true,
         options: [
@@ -97,7 +97,7 @@ describe('normalizeCortexMessage', () => {
     expect(normalized.content).toBe('What should I do?');
     expect(normalized.status).toBe('final');
     expect(normalized.meta).toMatchObject({
-      question_id: 'q_123',
+      question_ref: 'q_123',
       input_type: 'radio',
       allow_reply: true,
       actor: { kind: 'digital_worker', name: 'Robot Vasya' },

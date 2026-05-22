@@ -35,13 +35,19 @@ function resolveVisibleContent(payload: Record<string, unknown>): unknown {
   return message ?? null;
 }
 
+function withoutInternalRefs(meta: Record<string, unknown>): Record<string, unknown> {
+  const cleaned = { ...meta };
+  delete cleaned['resume_event_ref'];
+  return cleaned;
+}
+
 export function normalizeCortexMessage(message: CortexTransportMessage): ChatMessageViewModel {
   const payload = asPayload(message);
   const payloadMeta = isRecord(payload['meta']) ? payload['meta'] : undefined;
-  const mergedMeta: Record<string, unknown> = {
+  const mergedMeta: Record<string, unknown> = withoutInternalRefs({
     ...(isRecord(message.meta) ? message.meta : {}),
     ...(payloadMeta ?? {}),
-  };
+  });
 
   switch (message.type) {
     case 'chat::message':

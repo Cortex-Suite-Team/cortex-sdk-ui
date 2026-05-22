@@ -761,19 +761,39 @@ describe('sdk-ui controllers', () => {
       turn_id: 'turn_q1',
       meta: {
         question_ref: 'q_1',
-        input_type: 'radio',
+        input_type: 'form',
         allow_reply: true,
-        options: [
-          { id: 'a', label: 'Option A' },
-          { id: 'b', label: 'Option B' },
+        questions: [
+          {
+            key: 'decision',
+            label: 'Decision',
+            type: 'select',
+            required: true,
+            options: [
+              { id: 'a', label: 'Option A' },
+              { id: 'b', label: 'Option B' },
+            ],
+          },
         ],
       },
     }));
 
     expect(controller.getState().activeQuestion).toMatchObject({
       question_ref: 'q_1',
-      input_type: 'radio',
+      input_type: 'form',
       allow_reply: true,
+      questions: [
+        {
+          key: 'decision',
+          label: 'Decision',
+          type: 'select',
+          required: true,
+          options: [
+            { id: 'a', label: 'Option A' },
+            { id: 'b', label: 'Option B' },
+          ],
+        },
+      ],
       options: [
         { id: 'a', label: 'Option A' },
         { id: 'b', label: 'Option B' },
@@ -795,13 +815,41 @@ describe('sdk-ui controllers', () => {
         question_id: 'legacy_q_1',
         input_type: 'radio',
         allow_reply: true,
-        options: [{ id: 'a', label: 'Option A' }],
+        questions: [{
+          key: 'decision',
+          label: 'Decision',
+          type: 'radio',
+          options: [{ id: 'a', label: 'Option A' }],
+        }],
       },
     }));
 
     expect(controller.getState().activeQuestion).toMatchObject({
       question_ref: 'legacy_q_1',
       question_id: 'legacy_q_1',
+    });
+  });
+
+  it('does not use legacy meta.options when canonical questions are absent', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Choose one',
+      meta: {
+        question_ref: 'q_options_only',
+        input_type: 'radio',
+        allow_reply: true,
+        options: [{ id: 'a', label: 'Option A' }],
+      },
+    }));
+
+    expect(controller.getState().activeQuestion).toMatchObject({
+      question_ref: 'q_options_only',
+      questions: [],
+      options: [],
     });
   });
 
@@ -817,7 +865,12 @@ describe('sdk-ui controllers', () => {
         question_ref: 'q_2',
         input_type: 'radio',
         allow_reply: false,
-        options: [{ id: 'a', label: 'Option A' }],
+        questions: [{
+          key: 'decision',
+          label: 'Decision',
+          type: 'radio',
+          options: [{ id: 'a', label: 'Option A' }],
+        }],
       },
     }, 1));
 
@@ -845,7 +898,12 @@ describe('sdk-ui controllers', () => {
         question_ref: 'q_3',
         input_type: 'radio',
         allow_reply: true,
-        options: [{ id: 'a', label: 'Option A' }],
+        questions: [{
+          key: 'decision',
+          label: 'Decision',
+          type: 'radio',
+          options: [{ id: 'a', label: 'Option A' }],
+        }],
       },
     }, 1));
 
@@ -859,7 +917,7 @@ describe('sdk-ui controllers', () => {
     expect(controller.getState().activeQuestion).toBeNull();
   });
 
-  it('filters malformed options from activeQuestion', async () => {
+  it('filters malformed questions from activeQuestion', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
 
@@ -869,18 +927,24 @@ describe('sdk-ui controllers', () => {
       content: 'Choose',
       meta: {
         question_ref: 'q_4',
-        input_type: 'radio',
+        input_type: 'form',
         allow_reply: false,
-        options: [
-          { id: 'ok', label: 'Valid' },
-          { id: '', label: 'Missing ID' },
+        questions: [
+          { key: 'decision', label: 'Decision', type: 'select', options: [{ id: 'ok', label: 'Valid' }] },
+          { key: '', label: 'Missing key', type: 'text' },
           null,
-          { id: 'no-label' },
+          { key: 'bad-type', label: 'Bad type', type: 'checkbox' },
         ],
       },
     }, 1));
 
     const { activeQuestion } = controller.getState();
+    expect(activeQuestion?.questions).toHaveLength(1);
+    expect(activeQuestion?.questions?.[0]).toMatchObject({
+      key: 'decision',
+      type: 'select',
+      options: [{ id: 'ok', label: 'Valid' }],
+    });
     expect(activeQuestion?.options).toHaveLength(1);
     expect(activeQuestion?.options[0]).toEqual({ id: 'ok', label: 'Valid' });
   });

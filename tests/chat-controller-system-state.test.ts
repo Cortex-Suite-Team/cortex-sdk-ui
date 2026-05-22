@@ -274,9 +274,14 @@ describe('chat-controller — system::state handling', () => {
       role: 'assistant',
       meta: {
         question_ref: 'q1',
-        input_type: 'radio',
+        input_type: 'form',
         allow_reply: false,
-        options: [{ id: 'a', label: 'A' }],
+        questions: [{
+          key: 'decision',
+          label: 'Decision',
+          type: 'radio',
+          options: [{ id: 'a', label: 'A' }],
+        }],
       },
     }, 2));
 

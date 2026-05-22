@@ -14,6 +14,7 @@ import type {
   ChatMessageViewModel,
   ChatState,
   EscalationReplyContent,
+  QuestionField,
   QuestionOption,
   QuestionState,
   SendMessageResult,
@@ -66,6 +67,55 @@ function generateClientMsgId(): string {
     return crypto.randomUUID();
   }
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizeQuestionOptions(value: unknown): QuestionOption[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item): QuestionOption => ({
+      id: String(item['id'] ?? ''),
+      label: String(item['label'] ?? ''),
+    }))
+    .filter((option) => option.id !== '' && option.label !== '');
+}
+
+function normalizeQuestionFields(value: unknown): QuestionField[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const supportedTypes = new Set(['select', 'radio', 'text', 'boolean', 'date', 'email']);
+  return value
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item): QuestionField | null => {
+      const key = asNonEmptyString(item['key']);
+      const rawType = asNonEmptyString(item['type']);
+      if (!key || !rawType || !supportedTypes.has(rawType)) {
+        return null;
+      }
+      return {
+        key,
+        label: asNonEmptyString(item['label']) ?? key,
+        type: rawType as QuestionField['type'],
+        required: item['required'] === true,
+        options: normalizeQuestionOptions(item['options']),
+      };
+    })
+    .filter((item): item is QuestionField => item !== null);
+}
+
+function choiceOptionsFromQuestions(questions: QuestionField[]): QuestionOption[] {
+  if (questions.length !== 1) {
+    return [];
+  }
+  const [question] = questions;
+  if (question.type !== 'select' && question.type !== 'radio') {
+    return [];
+  }
+  return question.options;
 }
 
 function getSessionContextCorrespondent(client: ChatControllerOptions['client']): ChatState['session']['correspondent'] {
@@ -233,7 +283,14 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       escalation: cloneEscalation(escalation),
       lastError,
       activeQuestion: activeQuestion
-        ? { ...activeQuestion, options: [...activeQuestion.options] }
+        ? {
+            ...activeQuestion,
+            questions: (activeQuestion.questions ?? []).map((question) => ({
+              ...question,
+              options: [...question.options],
+            })),
+            options: [...activeQuestion.options],
+          }
         : null,
       workerState: { ...workerState },
     };
@@ -448,18 +505,18 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       const questionRef = meta
         ? (asNonEmptyString(meta['question_ref']) ?? asNonEmptyString(meta['question_id']))
         : null;
-      const legacyQuestionId = meta ? asNonEmptyString(meta['question_id']) : null;
+      const legacyQuestionId = questionRef && meta && !asNonEmptyString(meta['question_ref'])
+        ? asNonEmptyString(meta['question_id'])
+        : null;
       if (questionRef) {
-        const rawOptions = Array.isArray(meta?.['options']) ? meta['options'] as unknown[] : [];
+        const questions = normalizeQuestionFields(meta?.['questions']);
         activeQuestion = {
           question_ref: questionRef,
           ...(legacyQuestionId ? { question_id: legacyQuestionId } : {}),
           input_type: asNonEmptyString(meta?.['input_type']) ?? 'radio',
           allow_reply: meta?.['allow_reply'] === true,
-          options: (rawOptions as unknown[])
-            .filter((o): o is Record<string, unknown> => isRecord(o))
-            .map((o): QuestionOption => ({ id: String(o['id'] ?? ''), label: String(o['label'] ?? '') }))
-            .filter((o) => o.id !== '' && o.label !== ''),
+          questions,
+          options: choiceOptionsFromQuestions(questions),
           turn_id: asNonEmptyString(payload['turn_id']) ?? null,
         };
       }

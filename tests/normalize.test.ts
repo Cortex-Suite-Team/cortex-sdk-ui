@@ -75,7 +75,7 @@ describe('normalizeCortexMessage', () => {
     expect(normalized.content).toEqual({ foo: 'bar' });
   });
 
-  it('normalizes chat::question to assistant role and preserves actor and options in meta', () => {
+  it('normalizes chat::question to assistant role and preserves canonical questions in meta', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::question', {
       role: 'assistant',
       content: 'What should I do?',
@@ -83,11 +83,19 @@ describe('normalizeCortexMessage', () => {
       meta: {
         actor: { kind: 'digital_worker', id: 'proj_1', name: 'Robot Vasya', title: 'Lawyer' },
         question_ref: 'q_123',
-        input_type: 'radio',
+        input_type: 'form',
         allow_reply: true,
-        options: [
-          { id: 'approve', label: 'Approve' },
-          { id: 'reject', label: 'Reject' },
+        resume_event_ref: 'local.hidden',
+        questions: [
+          {
+            key: 'decision',
+            label: 'Decision',
+            type: 'select',
+            options: [
+              { id: 'approve', label: 'Approve' },
+              { id: 'reject', label: 'Reject' },
+            ],
+          },
         ],
       },
     }));
@@ -98,14 +106,22 @@ describe('normalizeCortexMessage', () => {
     expect(normalized.status).toBe('final');
     expect(normalized.meta).toMatchObject({
       question_ref: 'q_123',
-      input_type: 'radio',
+      input_type: 'form',
       allow_reply: true,
       actor: { kind: 'digital_worker', name: 'Robot Vasya' },
-      options: [
-        { id: 'approve', label: 'Approve' },
-        { id: 'reject', label: 'Reject' },
+      questions: [
+        {
+          key: 'decision',
+          label: 'Decision',
+          type: 'select',
+          options: [
+            { id: 'approve', label: 'Approve' },
+            { id: 'reject', label: 'Reject' },
+          ],
+        },
       ],
     });
+    expect(normalized.meta).not.toHaveProperty('resume_event_ref');
   });
 
   it('preserves payload.meta.actor for chat::answer', () => {

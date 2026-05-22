@@ -87,6 +87,80 @@ const unsubscribe = chat.subscribe((state) => {
 });
 ```
 
+## Interactive Questions
+
+Canonical runtime questions arrive as `chat::question` with `payload.meta.questions`.
+
+```json
+{
+  "type": "chat::question",
+  "payload": {
+    "content": "Please clarify",
+    "role": "assistant",
+    "meta": {
+      "question_ref": "q_01hzk8p5x4w6",
+      "input_type": "form",
+      "allow_reply": true,
+      "questions": [
+        {
+          "key": "decision",
+          "label": "Decision",
+          "type": "select",
+          "required": true,
+          "options": [
+            { "id": "approve", "label": "Approve" }
+          ]
+        }
+      ]
+    }
+  }
+}
+```
+
+Rules:
+
+- `payload.meta.questions` is canonical
+- top-level `payload.meta.options` is not supported
+- `question_ref` is canonical
+- `question_id` is accepted only as an inbound legacy fallback for old `chat::question`
+- `resume_event_ref` is internal runtime coordination metadata and is ignored by `sdk-ui`
+
+Answer payloads must echo `payload.meta.question_ref`.
+
+Single select / radio answers use `selected_option`:
+
+```json
+{
+  "type": "chat::message",
+  "payload": {
+    "content": "Answered",
+    "role": "user",
+    "meta": {
+      "question_ref": "q_01hzk8p5x4w6",
+      "selected_option": "approve"
+    }
+  }
+}
+```
+
+Form or multi-question answers use `answers`:
+
+```json
+{
+  "type": "chat::message",
+  "payload": {
+    "content": "Answered",
+    "role": "user",
+    "meta": {
+      "question_ref": "q_01hzk8p5x4w6",
+      "answers": {
+        "decision": "approve"
+      }
+    }
+  }
+}
+```
+
 ## Control Plane Reuse
 
 Control Plane can reuse transcript and escalation behavior while keeping operator permissions server-side.

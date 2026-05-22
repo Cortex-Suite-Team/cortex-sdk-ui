@@ -59,12 +59,15 @@ export interface QuestionField {
 }
 
 export interface QuestionState {
+  /** Canonical transport correlation key for chat::question replies. */
   question_ref: string;
   /** Legacy fallback accepted on inbound chat::question during transition. */
   question_id?: string;
   input_type: string;
   allow_reply: boolean;
+  /** Canonical interactive question objects from payload.meta.questions. */
   questions?: QuestionField[];
+  /** Present only for normalized single-question compatibility helpers. */
   options: QuestionOption[];
   turn_id?: string | null;
 }

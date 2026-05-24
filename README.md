@@ -12,7 +12,7 @@ This package includes:
 - message normalization
 - `chat::partial` aggregation
 - connection and input-lock display state
-- escalation helpers for `continue`, `operator_input`, and `reply_user`
+- escalation helpers for `operator_input` and `reply_user`
 
 This package does not include:
 
@@ -127,8 +127,8 @@ Rules:
 
 Answer payloads must echo `payload.meta.question_ref`.
 
-Canonical generated question replies use `content` as a list of content blocks. String `content`
-may remain accepted for backward compatibility, but it is not the canonical generated shape.
+Canonical generated question replies use `content` as `string[]`. Structured data belongs in
+`payload.meta`, not `payload.content`.
 
 Choice answers use `meta.selected`, always as `string[]`. `selected` contains question keys, never
 labels. Radio answers still use a one-item array; checkbox answers use one or more keys.
@@ -165,18 +165,13 @@ Checkbox answers also use `selected`:
 }
 ```
 
-Free replies use text content blocks and do not include `selected`:
+Free replies use text content and do not include `selected`:
 
 ```json
 {
   "type": "chat::message",
   "payload": {
-    "content": [
-      {
-        "type": "text",
-        "text": "Your answer here"
-      }
-    ],
+    "content": ["Your answer here"],
     "role": "user",
     "meta": {
       "question_ref": "q_01hzk8p5x4w6"

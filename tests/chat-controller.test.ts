@@ -287,16 +287,16 @@ describe('sdk-ui controllers', () => {
     const controller = createChatController({ client });
 
     await controller.sendMessage({
-      content: ['Approve'],
-      meta: { question_ref: 'q_1', selected_option: 'approve' },
+      content: [],
+      meta: { question_ref: 'q_1', selected: ['approve'] },
     });
 
     expect(client.sentMessages).toHaveLength(1);
     expect(client.sentMessages[0]).toMatchObject({
-      content: ['Approve'],
+      content: [],
       meta: {
         question_ref: 'q_1',
-        selected_option: 'approve',
+        selected: ['approve'],
       },
     });
     expect(typeof client.sentMessages[0].meta?.['client_msg_id']).toBe('string');
@@ -954,13 +954,13 @@ describe('sdk-ui controllers', () => {
     const controller = createChatController({ client });
 
     await controller.sendMessage({
-      content: ['Approve'],
-      meta: { question_ref: 'q_1', selected_option: 'approve' },
+      content: [],
+      meta: { question_ref: 'q_1', selected: ['approve'] },
     });
 
     expect(client.sentMessages[0]).toMatchObject({
-      content: ['Approve'],
-      meta: { question_ref: 'q_1', selected_option: 'approve' },
+      content: [],
+      meta: { question_ref: 'q_1', selected: ['approve'] },
     });
   });
 

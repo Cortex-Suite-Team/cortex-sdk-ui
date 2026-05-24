@@ -127,35 +127,59 @@ Rules:
 
 Answer payloads must echo `payload.meta.question_ref`.
 
-Single select / radio answers use `selected_option`:
+Canonical generated question replies use `content` as a list of content blocks. String `content`
+may remain accepted for backward compatibility, but it is not the canonical generated shape.
+
+Choice answers use `meta.selected`, always as `string[]`. `selected` contains question keys, never
+labels. Radio answers still use a one-item array; checkbox answers use one or more keys.
+
+Single select / radio answers use `selected`:
 
 ```json
 {
   "type": "chat::message",
   "payload": {
-    "content": "Answered",
+    "content": [],
     "role": "user",
     "meta": {
       "question_ref": "q_01hzk8p5x4w6",
-      "selected_option": "approve"
+      "selected": ["approve"]
     }
   }
 }
 ```
 
-Form or multi-question answers use `answers`:
+Checkbox answers also use `selected`:
 
 ```json
 {
   "type": "chat::message",
   "payload": {
-    "content": "Answered",
+    "content": [],
     "role": "user",
     "meta": {
       "question_ref": "q_01hzk8p5x4w6",
-      "answers": {
-        "decision": "approve"
+      "selected": ["approve", "request_changes"]
+    }
+  }
+}
+```
+
+Free replies use text content blocks and do not include `selected`:
+
+```json
+{
+  "type": "chat::message",
+  "payload": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Your answer here"
       }
+    ],
+    "role": "user",
+    "meta": {
+      "question_ref": "q_01hzk8p5x4w6"
     }
   }
 }

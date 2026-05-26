@@ -214,6 +214,54 @@ describe('createTranscriptStore', () => {
     expect(store.getSnapshot()).toHaveLength(1);
   });
 
+  it('reconciles chat::echo when client_msg_id is only present on envelope meta', () => {
+    const store = createTranscriptStore();
+
+    store.upsertLocalMessage({
+      id: 'client:msg_envelope',
+      type: 'chat::message',
+      role: 'user',
+      content: 'Envelope meta',
+      status: 'final',
+      deliveryStatus: 'sent',
+      ts: '2026-05-14T18:35:00.000Z',
+      clientMsgId: 'msg_envelope',
+      meta: {
+        client_msg_id: 'msg_envelope',
+        timestamp_source: 'client',
+      },
+      originalPayload: {
+        content: 'Envelope meta',
+        meta: {
+          client_msg_id: 'msg_envelope',
+        },
+      },
+    });
+
+    const result = store.ingest({
+      type: 'chat::echo',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 15,
+      ts: '2026-05-14T18:35:02.000Z',
+      meta: {
+        client_msg_id: 'msg_envelope',
+      },
+      payload: {
+        role: 'user',
+        content: 'Envelope meta',
+      },
+    });
+
+    expect(result.mutation?.type).toBe('message_updated');
+    expect(store.getSnapshot()).toHaveLength(1);
+    expect(store.getSnapshot()[0]).toMatchObject({
+      id: 'client:msg_envelope',
+      deliveryStatus: 'processed',
+      seq: 15,
+    });
+  });
+
   it('preserves optimistic identity and content when matching chat::echo arrives for a sent user message', () => {
     const store = createTranscriptStore();
 
@@ -292,6 +340,12 @@ describe('createTranscriptStore', () => {
         client_msg_id: 'msg_2',
         timestamp_source: 'client',
       },
+      originalPayload: {
+        content: 'Hello',
+        meta: {
+          client_msg_id: 'msg_2',
+        },
+      },
     });
 
     store.ingest({
@@ -331,6 +385,171 @@ describe('createTranscriptStore', () => {
     expect(result.mutation?.message.role).toBe('user');
     expect(result.mutation?.message.deliveryStatus).toBe('processed');
     expect(store.getSnapshot()).toHaveLength(1);
+  });
+
+  it('does not reconcile chat::echo by seq when client_msg_id is missing', () => {
+    const store = createTranscriptStore();
+
+    store.upsertLocalMessage({
+      id: 'client:msg_seq_only',
+      seq: 21,
+      type: 'chat::message',
+      role: 'user',
+      content: 'Same seq',
+      status: 'final',
+      deliveryStatus: 'sent',
+      ts: '2026-05-14T18:35:00.000Z',
+      clientMsgId: 'msg_seq_only',
+      meta: {
+        client_msg_id: 'msg_seq_only',
+        timestamp_source: 'client',
+      },
+      originalPayload: {
+        content: 'Same seq',
+        meta: {
+          client_msg_id: 'msg_seq_only',
+        },
+      },
+    });
+
+    const result = store.ingest({
+      type: 'chat::echo',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 21,
+      ts: '2026-05-14T18:35:02.000Z',
+      payload: {
+        role: 'user',
+        content: 'Same seq',
+      },
+    });
+
+    expect(result.mutation?.type).toBe('message_added');
+    expect(store.getSnapshot()).toHaveLength(2);
+    expect(store.getSnapshot()[0].deliveryStatus).toBe('sent');
+  });
+
+  it('does not reconcile operator chat::echo even with the same client_msg_id', () => {
+    const store = createTranscriptStore();
+
+    store.upsertLocalMessage({
+      id: 'client:msg_operator',
+      type: 'chat::message',
+      role: 'user',
+      content: 'User text',
+      status: 'final',
+      deliveryStatus: 'sent',
+      ts: '2026-05-14T18:35:00.000Z',
+      clientMsgId: 'msg_operator',
+      meta: {
+        client_msg_id: 'msg_operator',
+        timestamp_source: 'client',
+      },
+      originalPayload: {
+        content: 'User text',
+        meta: {
+          client_msg_id: 'msg_operator',
+        },
+      },
+    });
+
+    const result = store.ingest(createMessage('chat::echo', {
+      content: 'Operator text',
+      role: 'operator',
+      meta: {
+        client_msg_id: 'msg_operator',
+      },
+    }, 22));
+
+    expect(result.mutation?.type).toBe('message_added');
+    const snapshot = store.getSnapshot();
+    expect(snapshot).toHaveLength(2);
+    expect(snapshot[0]).toMatchObject({
+      id: 'client:msg_operator',
+      role: 'user',
+      deliveryStatus: 'sent',
+    });
+    expect(snapshot[1]).toMatchObject({
+      role: 'operator',
+      content: 'Operator text',
+    });
+  });
+
+  it('does not reconcile server-loaded user messages without local send identity', () => {
+    const store = createTranscriptStore({
+      initialTranscript: [{
+        id: 'client:historic',
+        type: 'chat::message',
+        role: 'user',
+        content: 'Historical user message',
+        status: 'final',
+        deliveryStatus: 'sent',
+        ts: '2026-05-14T18:30:00.000Z',
+        clientMsgId: 'historic',
+        meta: {
+          client_msg_id: 'historic',
+        },
+      }],
+    });
+
+    const result = store.ingest(createMessage('chat::echo', {
+      content: 'Historical user message',
+      role: 'user',
+      meta: {
+        client_msg_id: 'historic',
+      },
+    }, 23));
+
+    expect(result.mutation?.type).toBe('message_added');
+    expect(store.getSnapshot()).toHaveLength(2);
+  });
+
+  it('reconciles two identical pending messages by their distinct client_msg_id values', () => {
+    const store = createTranscriptStore();
+
+    for (const clientMsgId of ['same_1', 'same_2']) {
+      store.upsertLocalMessage({
+        id: `client:${clientMsgId}`,
+        type: 'chat::message',
+        role: 'user',
+        content: 'Test',
+        status: 'final',
+        deliveryStatus: 'sent',
+        ts: '2026-05-14T18:35:00.000Z',
+        clientMsgId,
+        meta: {
+          client_msg_id: clientMsgId,
+          timestamp_source: 'client',
+        },
+        originalPayload: {
+          content: 'Test',
+          meta: {
+            client_msg_id: clientMsgId,
+          },
+        },
+      });
+    }
+
+    store.ingest(createMessage('chat::echo', {
+      content: 'Test',
+      role: 'user',
+      meta: {
+        client_msg_id: 'same_2',
+      },
+    }, 24));
+    store.ingest(createMessage('chat::echo', {
+      content: 'Test',
+      role: 'user',
+      meta: {
+        client_msg_id: 'same_1',
+      },
+    }, 25));
+
+    const snapshot = store.getSnapshot();
+    expect(snapshot).toHaveLength(2);
+    expect(snapshot.map((message) => message.id)).toEqual(['client:same_1', 'client:same_2']);
+    expect(snapshot.map((message) => message.deliveryStatus)).toEqual(['processed', 'processed']);
+    expect(snapshot.map((message) => message.seq)).toEqual([25, 24]);
   });
 
   it('upsertLocalMessage does not affect server-ingested messages', () => {

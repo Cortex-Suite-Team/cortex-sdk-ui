@@ -77,12 +77,34 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     };
   }
 
-  function findMessageIndexByClientMsgId(clientMsgId: string | undefined): number | undefined {
+  function isReconcileableOutgoingUserMessage(
+    message: ChatMessageViewModel,
+    clientMsgId: string,
+  ): boolean {
+    const originalPayloadMeta = isRecord(message.originalPayload?.meta)
+      ? message.originalPayload.meta
+      : null;
+
+    return (
+      message.id.startsWith('client:')
+      && message.type === 'chat::message'
+      && message.role === 'user'
+      && message.clientMsgId === clientMsgId
+      && (
+        message.deliveryStatus === 'sending'
+        || message.deliveryStatus === 'sent'
+        || message.deliveryStatus === 'failed'
+      )
+      && originalPayloadMeta?.['client_msg_id'] === clientMsgId
+    );
+  }
+
+  function findReconcileableOutgoingUserMessageIndex(clientMsgId: string | undefined): number | undefined {
     if (!clientMsgId) {
       return undefined;
     }
     for (const [index, message] of transcript.entries()) {
-      if (message.clientMsgId === clientMsgId) {
+      if (isReconcileableOutgoingUserMessage(message, clientMsgId)) {
         return index;
       }
     }
@@ -183,7 +205,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       const normalized = normalizeCortexMessage(message);
       const optimisticIndex = message.type === 'chat::echo' && normalized.role === 'user'
-        ? findMessageIndexByClientMsgId(normalized.clientMsgId)
+        ? findReconcileableOutgoingUserMessageIndex(normalized.clientMsgId)
         : undefined;
       const existingIndex = indexById.get(normalized.id);
 

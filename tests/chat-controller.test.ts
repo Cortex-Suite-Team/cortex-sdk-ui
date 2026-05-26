@@ -497,6 +497,34 @@ describe('sdk-ui controllers', () => {
     expect(transcript[1].deliveryStatus).toBe('processed');
   });
 
+  it('chat::echo with same client_msg_id but role=operator is added separately', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.sendMessage({ content: 'Needs operator' });
+
+    const clientMsgId = controller.getState().transcript[0].clientMsgId;
+    client.emit(createMessage('chat::echo', {
+      content: 'Operator response',
+      role: 'operator',
+      meta: {
+        client_msg_id: clientMsgId,
+      },
+    }, 9));
+
+    const transcript = controller.getState().transcript;
+    expect(transcript).toHaveLength(2);
+    expect(transcript[0]).toMatchObject({
+      role: 'user',
+      deliveryStatus: 'sent',
+    });
+    expect(transcript[1]).toMatchObject({
+      role: 'operator',
+      content: 'Operator response',
+    });
+  });
+
   it('matching chat::echo without server timestamp keeps the local provisional timestamp', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });
@@ -559,6 +587,40 @@ describe('sdk-ui controllers', () => {
     const transcript = controller.getState().transcript;
     expect(transcript).toHaveLength(2);
     expect(transcript[0].clientMsgId).not.toBe(transcript[1].clientMsgId);
+  });
+
+  it('matching echoes reconcile two identical sends by client_msg_id without collapsing them', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    await controller.sendMessage({ content: 'Same text' });
+    await controller.sendMessage({ content: 'Same text' });
+
+    const beforeEcho = controller.getState().transcript;
+    const firstClientMsgId = beforeEcho[0].clientMsgId;
+    const secondClientMsgId = beforeEcho[1].clientMsgId;
+
+    client.emit(createMessage('chat::echo', {
+      content: 'Same text',
+      role: 'user',
+      meta: {
+        client_msg_id: secondClientMsgId,
+      },
+    }, 11));
+    client.emit(createMessage('chat::echo', {
+      content: 'Same text',
+      role: 'user',
+      meta: {
+        client_msg_id: firstClientMsgId,
+      },
+    }, 12));
+
+    const transcript = controller.getState().transcript;
+    expect(transcript).toHaveLength(2);
+    expect(transcript.map((message) => message.clientMsgId)).toEqual([firstClientMsgId, secondClientMsgId]);
+    expect(transcript.map((message) => message.deliveryStatus)).toEqual(['processed', 'processed']);
+    expect(transcript.map((message) => message.seq)).toEqual([12, 11]);
   });
 
   it('creates escalation state from escalation::request', async () => {

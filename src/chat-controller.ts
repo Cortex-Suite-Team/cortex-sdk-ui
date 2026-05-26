@@ -31,6 +31,7 @@ import {
   isRecord,
 } from './utils.js';
 
+const CORTEX_SDK_UI_VERSION = '0.1.0';
 const MESSAGE_SEND_TIMEOUT_MS = 15_000;
 const LIFECYCLE_SESSION_STATE_MAP: Record<string, string> = {
   active: 'ACTIVE',
@@ -41,6 +42,38 @@ const LIFECYCLE_SESSION_STATE_MAP: Record<string, string> = {
   timeout: 'TIMEOUT',
   cancelled: 'CANCELLED',
 };
+
+function isModuleDebugEnabled(): boolean {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const queryDebug = params.get('debug');
+    if (queryDebug === 'true' || queryDebug === '1') {
+      return true;
+    }
+    return window.localStorage.getItem('cortex_debug') === '1';
+  } catch {
+    return false;
+  }
+}
+
+console.log('[cortex sdk-ui controller module loaded]', {
+  source: 'sdk-ui',
+  version: CORTEX_SDK_UI_VERSION,
+  ts: new Date().toISOString(),
+});
+
+if (isModuleDebugEnabled()) {
+  console.debug('[cortex sdk-ui controller module loaded]', {
+    source: 'sdk-ui',
+    version: CORTEX_SDK_UI_VERSION,
+    ts: new Date().toISOString(),
+    href: typeof window !== 'undefined' ? window.location.href : undefined,
+  });
+}
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, msg: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;

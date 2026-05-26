@@ -4,6 +4,7 @@ import {
 } from './errors.js';
 import { createDebugLogger } from './debug.js';
 import { createEscalationController } from './escalation-controller.js';
+import { normalizeCortexMessage } from './normalize.js';
 import { createTranscriptStore } from './transcript-store.js';
 import type {
   ChatAuthState,
@@ -153,6 +154,48 @@ function summarizeSendPayload(payload: {
         ? payload.meta.client_msg_id
         : undefined,
   };
+}
+
+function getMessageMetaClientMsgId(message: { meta?: Record<string, unknown> } | null | undefined): string | undefined {
+  if (!message || !isRecord(message.meta)) {
+    return undefined;
+  }
+  return asNonEmptyString(message.meta['client_msg_id']) ?? undefined;
+}
+
+function getPayloadMetaClientMsgId(message: { payload?: Record<string, unknown> } | null | undefined): string | undefined {
+  if (!message || !isRecord(message.payload)) {
+    return undefined;
+  }
+  const payloadMeta = isRecord(message.payload['meta']) ? message.payload['meta'] : null;
+  return asNonEmptyString(payloadMeta?.['client_msg_id']) ?? undefined;
+}
+
+function isPendingOutgoingUserMessage(message: ChatMessageViewModel): boolean {
+  return (
+    message.id.startsWith('client:')
+    && message.type === 'chat::message'
+    && message.role === 'user'
+    && (
+      message.deliveryStatus === 'sending'
+      || message.deliveryStatus === 'sent'
+      || message.deliveryStatus === 'failed'
+    )
+  );
+}
+
+function resolvePendingCandidate(
+  transcript: ChatMessageViewModel[],
+  clientMsgId: string | undefined,
+): ChatMessageViewModel | undefined {
+  if (!clientMsgId) {
+    return undefined;
+  }
+  return transcript.find((message) => (
+    isPendingOutgoingUserMessage(message)
+    && message.clientMsgId === clientMsgId
+    && getMessageMetaClientMsgId(message.originalPayload) === clientMsgId
+  ));
 }
 
 export function createChatController(options: ChatControllerOptions): ChatController {
@@ -480,6 +523,45 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       return;
     }
 
+    if (message.type === 'chat::echo') {
+      const transcriptBefore = transcriptStore.getSnapshot();
+      const normalized = normalizeCortexMessage(message);
+      const payloadMetaClientMsgId = getPayloadMetaClientMsgId(message);
+      const envelopeMetaClientMsgId = getMessageMetaClientMsgId(message);
+      const echoClientMsgId = normalized.clientMsgId;
+      const candidate = normalized.role === 'user'
+        ? resolvePendingCandidate(transcriptBefore, echoClientMsgId)
+        : undefined;
+      const pendingKeys = transcriptBefore
+        .filter((entry) => isPendingOutgoingUserMessage(entry))
+        .map((entry) => entry.clientMsgId)
+        .filter((entry): entry is string => typeof entry === 'string');
+
+      let skipReason: string | undefined;
+      if (normalized.role !== 'user') {
+        skipReason = `role_${normalized.role ?? 'unknown'}`;
+      } else if (!echoClientMsgId) {
+        skipReason = 'missing_client_msg_id';
+      } else if (!candidate) {
+        skipReason = 'no_pending_candidate';
+      }
+
+      debug.log('[chat echo debug]', {
+        type: message.type,
+        role: normalized.role,
+        seq: typeof message.seq === 'number' ? message.seq : undefined,
+        echoClientMsgId,
+        envelopeMetaClientMsgId,
+        payloadMetaClientMsgId,
+        pendingKeys,
+        candidateId: candidate?.id,
+        candidateType: candidate?.type,
+        candidateDeliveryStatus: candidate?.deliveryStatus,
+        candidateClientMsgId: candidate?.clientMsgId ?? getMessageMetaClientMsgId(candidate),
+        skipReason,
+      });
+    }
+
     const result = transcriptStore.ingest(message);
     if (result.mutation) {
       emit({
@@ -625,10 +707,16 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emitStateChanged();
 
       try {
-        debug.log('[sdk-ui] sendMessage -> client.sendMessage start', summarizeSendPayload(sendPayload));
-        await withTimeout(
-          options.client.sendMessage(sendPayload),
-          MESSAGE_SEND_TIMEOUT_MS,
+      debug.log('[sdk-ui] sendMessage -> client.sendMessage start', summarizeSendPayload(sendPayload));
+      debug.log('[chat send debug]', {
+        localMessageId: id,
+        clientMsgId,
+        outboundMeta: sendPayload.meta,
+        envelopeMeta: undefined,
+      });
+      await withTimeout(
+        options.client.sendMessage(sendPayload),
+        MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
         transcriptStore.upsertLocalMessage({

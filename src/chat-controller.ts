@@ -119,6 +119,25 @@ function choiceOptionsFromQuestions(questions: QuestionField[]): QuestionOption[
   return question.options;
 }
 
+// Build QuestionOptions from ask_user's {key, label} choices format when no typed questions exist.
+function buildAskUserOptions(rawQuestions: unknown): QuestionOption[] {
+  if (!Array.isArray(rawQuestions)) {
+    return [];
+  }
+  const options: QuestionOption[] = [];
+  for (const item of rawQuestions) {
+    if (!isRecord(item) || item['type'] != null) {
+      return [];
+    }
+    const id = asNonEmptyString(item['key']);
+    const label = asNonEmptyString(item['label']) ?? id;
+    if (id && label) {
+      options.push({ id, label });
+    }
+  }
+  return options;
+}
+
 function getSessionContextCorrespondent(client: ChatControllerOptions['client']): ChatState['session']['correspondent'] {
   const rawSessionContext = client.sessionContext;
   if (isRecord(rawSessionContext) && isRecord(rawSessionContext['correspondent'])) {
@@ -511,13 +530,16 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         : null;
       if (questionRef) {
         const questions = normalizeQuestionFields(meta?.['questions']);
+        const options = questions.length > 0
+          ? choiceOptionsFromQuestions(questions)
+          : buildAskUserOptions(meta?.['questions']);
         activeQuestion = {
           question_ref: questionRef,
           ...(legacyQuestionId ? { question_id: legacyQuestionId } : {}),
           input_type: asNonEmptyString(meta?.['input_type']) ?? 'radio',
           allow_reply: meta?.['allow_reply'] === true,
           questions,
-          options: choiceOptionsFromQuestions(questions),
+          options,
           turn_id: asNonEmptyString(payload['turn_id']) ?? null,
         };
       }

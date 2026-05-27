@@ -915,6 +915,36 @@ describe('sdk-ui controllers', () => {
     });
   });
 
+  it('populates activeQuestion.options from ask_user {key,label} choices without type', async () => {
+    const client = createMockClient();
+    const controller = createChatController({ client });
+
+    await controller.connect();
+    client.emit(createMessage('chat::question', {
+      role: 'assistant',
+      content: 'Approve or reject?',
+      meta: {
+        question_ref: 'q_ask',
+        choice_mode: 'radio',
+        allow_reply: false,
+        questions: [
+          { key: 'approve', label: 'Approve' },
+          { key: 'reject', label: 'Reject' },
+        ],
+      },
+    }));
+
+    expect(controller.getState().activeQuestion).toMatchObject({
+      question_ref: 'q_ask',
+      allow_reply: false,
+      questions: [],
+      options: [
+        { id: 'approve', label: 'Approve' },
+        { id: 'reject', label: 'Reject' },
+      ],
+    });
+  });
+
   it('clears activeQuestion on chat::answer', async () => {
     const client = createMockClient();
     const controller = createChatController({ client });

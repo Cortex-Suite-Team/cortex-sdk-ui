@@ -260,6 +260,7 @@ export interface TranscriptStore {
 export interface EscalationController {
   getState(): EscalationState | null;
   setState(state: EscalationState | null): void;
+  clearEscalation(): void;
   ingest(message: CortexTransportMessage): EscalationState | null;
   replyToUser(content: EscalationReplyContent): Promise<void>;
   returnToWorker(content: EscalationReplyContent): Promise<void>;

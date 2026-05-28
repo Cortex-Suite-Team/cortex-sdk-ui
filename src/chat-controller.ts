@@ -417,6 +417,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
     if (status === 'idle') {
       resetWorkerStateToIdle();
+      escalationController.clearEscalation();
       return true;
     }
 
@@ -472,6 +473,9 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       const correlationId = asNonEmptyString(meta?.['correlation_id']) ?? undefined;
       const expiresAt = ttlMs !== undefined ? Date.now() + ttlMs : undefined;
       applyWorkerState({ state: stateName, label, expiresAt, correlation_id: correlationId });
+      if (stateName === 'idle') {
+        escalationController.clearEscalation();
+      }
       emitStateChanged();
       return;
     }
@@ -549,6 +553,10 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       awaitingAnswer = false;
       activeQuestion = null;
       resetWorkerStateToIdle();
+      const answerPayload = asPayload(message);
+      if (answerPayload['answer_kind'] === 'final') {
+        escalationController.clearEscalation();
+      }
     }
 
     if (message.type === 'sandbox::lifecycle') {

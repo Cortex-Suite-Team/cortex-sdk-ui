@@ -116,6 +116,10 @@ export function createEscalationController(options: EscalationControllerOptions)
       state = cloneEscalation(nextState);
     },
 
+    clearEscalation() {
+      state = null;
+    },
+
     ingest(message) {
       if (message.type === 'escalation::request') {
         state = normalizeEscalationState(message);

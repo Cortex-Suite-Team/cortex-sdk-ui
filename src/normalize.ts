@@ -43,7 +43,15 @@ function withoutInternalRefs(meta: Record<string, unknown>): Record<string, unkn
   return cleaned;
 }
 
-const KNOWN_ACTOR_KINDS: ReadonlySet<string> = new Set(['user', 'operator', 'digital_worker', 'system']);
+// Maps transport-layer kind strings to the canonical ChatActorKind.
+// "human_operator" is a runtime-internal alias — normalized to "operator" at the boundary.
+function resolveActorKind(raw: string): ChatActorKind | null {
+  if (raw === 'operator' || raw === 'human_operator') return 'operator';
+  if (raw === 'digital_worker') return 'digital_worker';
+  if (raw === 'user') return 'user';
+  if (raw === 'system') return 'system';
+  return null;
+}
 
 function extractActor(
   message: CortexTransportMessage,
@@ -60,13 +68,14 @@ function extractActor(
 
   if (!raw) return null;
 
-  const kind = asNonEmptyString(raw['kind']);
+  const kindRaw = asNonEmptyString(raw['kind']);
   const name = asNonEmptyString(raw['name']);
+  const resolvedKind = kindRaw ? resolveActorKind(kindRaw) : null;
 
-  if (!kind || !name || !KNOWN_ACTOR_KINDS.has(kind)) return null;
+  if (!resolvedKind || !name) return null;
 
   return {
-    kind: kind as ChatActorKind,
+    kind: resolvedKind,
     id: asNonEmptyString(raw['id']) ?? null,
     name,
     title: asNonEmptyString(raw['title']) ?? null,

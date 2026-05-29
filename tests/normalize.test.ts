@@ -364,4 +364,27 @@ describe('extractActor — actor field on ChatMessageViewModel', () => {
     }));
     expect(normalized.actor).toBeNull();
   });
+
+  it('transport alias "human_operator" normalizes to canonical actor kind "operator"', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::echo', {
+      content: 'Support reply',
+      role: 'operator',
+      meta: {
+        actor: { kind: 'human_operator', name: 'Support' },
+      },
+    }));
+    expect(normalized.actor?.kind).toBe('operator');
+    expect(normalized.actor?.name).toBe('Support');
+  });
+
+  it('chat::echo with client_msg_id in payload.meta sets normalized clientMsgId', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::echo', {
+      content: 'Hello',
+      role: 'user',
+      meta: {
+        client_msg_id: 'cmsg_abc123',
+      },
+    }));
+    expect(normalized.clientMsgId).toBe('cmsg_abc123');
+  });
 });

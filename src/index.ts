@@ -6,7 +6,7 @@ export {
 } from './content-render.js';
 export { createEscalationController } from './escalation-controller.js';
 export { createTranscriptStore } from './transcript-store.js';
-export { normalizeCortexMessage } from './normalize.js';
+export { normalizeCortexMessage, parseRawActor } from './normalize.js';
 export { ControllerError } from './errors.js';
 
 export type {

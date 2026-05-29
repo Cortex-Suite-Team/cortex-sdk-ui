@@ -1,4 +1,4 @@
-import { normalizeCortexMessage } from '../src/index.js';
+import { normalizeCortexMessage, parseRawActor } from '../src/index.js';
 import { createMessage } from './helpers.js';
 
 describe('normalizeCortexMessage', () => {
@@ -386,5 +386,83 @@ describe('extractActor — actor field on ChatMessageViewModel', () => {
       },
     }));
     expect(normalized.clientMsgId).toBe('cmsg_abc123');
+  });
+});
+
+describe('parseRawActor', () => {
+  it('returns null for null input', () => {
+    expect(parseRawActor(null)).toBeNull();
+  });
+
+  it('returns null for non-object input', () => {
+    expect(parseRawActor('digital_worker')).toBeNull();
+    expect(parseRawActor(42)).toBeNull();
+  });
+
+  it('returns null when kind is missing', () => {
+    expect(parseRawActor({ name: 'Aria' })).toBeNull();
+  });
+
+  it('returns null when name is missing', () => {
+    expect(parseRawActor({ kind: 'digital_worker' })).toBeNull();
+  });
+
+  it('returns null for unknown kind', () => {
+    expect(parseRawActor({ kind: 'robot', name: 'Aria' })).toBeNull();
+  });
+
+  it('parses a full digital_worker actor with camelCase avatarUrl', () => {
+    const actor = parseRawActor({
+      kind: 'digital_worker',
+      id: 'proj_1',
+      name: 'Aria',
+      title: 'Digital worker',
+      subtitle: '',
+      avatarUrl: 'https://example.com/avatar.png',
+    });
+    expect(actor).toEqual({
+      kind: 'digital_worker',
+      id: 'proj_1',
+      name: 'Aria',
+      title: 'Digital worker',
+      subtitle: '',
+      avatarUrl: 'https://example.com/avatar.png',
+    });
+  });
+
+  it('normalizes snake_case avatar_url to avatarUrl', () => {
+    const actor = parseRawActor({
+      kind: 'digital_worker',
+      name: 'Aria',
+      avatar_url: '/static/avatar.png',
+    });
+    expect(actor?.avatarUrl).toBe('/static/avatar.png');
+  });
+
+  it('prefers camelCase avatarUrl over snake_case avatar_url', () => {
+    const actor = parseRawActor({
+      kind: 'digital_worker',
+      name: 'Aria',
+      avatarUrl: 'camel.png',
+      avatar_url: 'snake.png',
+    });
+    expect(actor?.avatarUrl).toBe('camel.png');
+  });
+
+  it('normalizes human_operator kind to operator', () => {
+    const actor = parseRawActor({ kind: 'human_operator', name: 'Jane' });
+    expect(actor?.kind).toBe('operator');
+  });
+
+  it('parses operator actor', () => {
+    const actor = parseRawActor({ kind: 'operator', name: 'Bob Smith' });
+    expect(actor).toEqual({
+      kind: 'operator',
+      id: null,
+      name: 'Bob Smith',
+      title: null,
+      subtitle: null,
+      avatarUrl: null,
+    });
   });
 });

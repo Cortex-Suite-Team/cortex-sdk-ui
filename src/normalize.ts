@@ -53,6 +53,22 @@ function resolveActorKind(raw: string): ChatActorKind | null {
   return null;
 }
 
+export function parseRawActor(raw: unknown): ChatActor | null {
+  if (!isRecord(raw)) return null;
+  const kindRaw = asNonEmptyString(raw['kind']);
+  const name = asNonEmptyString(raw['name']);
+  const resolvedKind = kindRaw ? resolveActorKind(kindRaw) : null;
+  if (!resolvedKind || !name) return null;
+  return {
+    kind: resolvedKind,
+    id: asNonEmptyString(raw['id']) ?? null,
+    name,
+    title: asNonEmptyString(raw['title']) ?? null,
+    subtitle: asNonEmptyString(raw['subtitle']) ?? null,
+    avatarUrl: asNonEmptyString(raw['avatarUrl']) ?? asNonEmptyString(raw['avatar_url']) ?? null,
+  };
+}
+
 function extractActor(
   message: CortexTransportMessage,
   payload: Record<string, unknown>,
@@ -62,26 +78,11 @@ function extractActor(
   const messageMeta = isRecord(message.meta) ? message.meta as Record<string, unknown> : undefined;
 
   const raw =
-    (isRecord(payloadMeta?.['actor']) ? payloadMeta!['actor'] as Record<string, unknown> : null) ??
-    (isRecord(payload['actor']) ? payload['actor'] as Record<string, unknown> : null) ??
-    (isRecord(messageMeta?.['actor']) ? messageMeta!['actor'] as Record<string, unknown> : null);
+    (isRecord(payloadMeta?.['actor']) ? payloadMeta!['actor'] : null) ??
+    (isRecord(payload['actor']) ? payload['actor'] : null) ??
+    (isRecord(messageMeta?.['actor']) ? messageMeta!['actor'] : null);
 
-  if (!raw) return null;
-
-  const kindRaw = asNonEmptyString(raw['kind']);
-  const name = asNonEmptyString(raw['name']);
-  const resolvedKind = kindRaw ? resolveActorKind(kindRaw) : null;
-
-  if (!resolvedKind || !name) return null;
-
-  return {
-    kind: resolvedKind,
-    id: asNonEmptyString(raw['id']) ?? null,
-    name,
-    title: asNonEmptyString(raw['title']) ?? null,
-    subtitle: asNonEmptyString(raw['subtitle']) ?? null,
-    avatarUrl: asNonEmptyString(raw['avatarUrl']) ?? asNonEmptyString(raw['avatar_url']) ?? null,
-  };
+  return parseRawActor(raw);
 }
 
 export function normalizeCortexMessage(message: CortexTransportMessage): ChatMessageViewModel {

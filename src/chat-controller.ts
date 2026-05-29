@@ -450,6 +450,13 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     unsubscribeFromClient = null;
   }
 
+  function shouldClearEscalationOnVisibleTranscriptMessage(message: ChatMessageViewModel): boolean {
+    if (!escalationController.getState()) return false;
+    if (message.type === 'escalation::request') return false;
+    if (message.role === 'user') return false;
+    return true;
+  }
+
   function handleMessage(message: Parameters<typeof options.client.onMessage>[0] extends (arg: infer T) => void ? T : never) {
     if (message.type === 'system::opened') {
       handleSystemOpened();
@@ -521,6 +528,10 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       emit({ type: 'escalation_opened', escalation: cloneEscalation(escalation)! });
     }
 
+    if (result.mutation && shouldClearEscalationOnVisibleTranscriptMessage(result.mutation.message)) {
+      escalationController.clearEscalation();
+    }
+
     if (message.type === 'chat::question') {
       awaitingAnswer = false;
       resetWorkerStateToIdle();
@@ -553,10 +564,6 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       awaitingAnswer = false;
       activeQuestion = null;
       resetWorkerStateToIdle();
-      const answerPayload = asPayload(message);
-      if (answerPayload['answer_kind'] === 'final') {
-        escalationController.clearEscalation();
-      }
     }
 
     if (message.type === 'sandbox::lifecycle') {

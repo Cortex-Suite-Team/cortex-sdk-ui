@@ -118,6 +118,17 @@ export interface ChatSessionState {
   correspondent: ChatCorrespondent | null;
 }
 
+export type ChatActorKind = 'user' | 'operator' | 'digital_worker' | 'system';
+
+export interface ChatActor {
+  kind: ChatActorKind;
+  id?: string | null;
+  name: string;
+  title?: string | null;
+  subtitle?: string | null;
+  avatarUrl?: string | null;
+}
+
 export interface ChatMessageViewModel {
   id: string;
   seq?: number | null;
@@ -127,6 +138,7 @@ export interface ChatMessageViewModel {
   status?: ChatMessageStatus;
   ts?: string | null;
   meta?: Record<string, unknown>;
+  actor?: ChatActor | null;
   clientMsgId?: string;
   deliveryStatus?: ChatMessageDeliveryStatus;
   retryable?: boolean;

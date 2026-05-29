@@ -191,3 +191,177 @@ describe('normalizeCortexMessage', () => {
     expect(String(normalized.content)).not.toContain('Contract Review Session');
   });
 });
+
+describe('extractActor — actor field on ChatMessageViewModel', () => {
+  it('extracts a valid actor from payload.meta.actor for chat::answer', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      meta: {
+        actor: { kind: 'digital_worker', id: 'proj_1', name: 'Robot Vasya', title: 'Lawyer', avatar_url: 'https://example.test/avatar.png' },
+      },
+    }));
+
+    expect(normalized.actor).toEqual({
+      kind: 'digital_worker',
+      id: 'proj_1',
+      name: 'Robot Vasya',
+      title: 'Lawyer',
+      subtitle: null,
+      avatarUrl: 'https://example.test/avatar.png',
+    });
+  });
+
+  it('returns actor=null when actor is absent on chat::answer', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('returns actor=null when actor is absent on chat::question', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::question', {
+      content: 'What to do?',
+      role: 'assistant',
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('returns actor=null when actor is absent on escalation::reply', () => {
+    const normalized = normalizeCortexMessage(createMessage('escalation::reply', {
+      content: 'Operator replied',
+      escalation_id: 'esc_1',
+      action: 'reply_user',
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('returns actor=null when actor has no name', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      meta: {
+        actor: { kind: 'digital_worker' },
+      },
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('returns actor=null when actor has no kind', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      meta: {
+        actor: { name: 'Robot Vasya' },
+      },
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('returns actor=null when actor has an unknown kind', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      meta: {
+        actor: { kind: 'robot', name: 'Unknown Bot' },
+      },
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('extracts actor from payload.actor (top-level) when payload.meta.actor is absent', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      actor: { kind: 'digital_worker', name: 'Top-level Bot' },
+    }));
+    expect(normalized.actor).toMatchObject({ kind: 'digital_worker', name: 'Top-level Bot' });
+  });
+
+  it('payload.meta.actor wins over payload.actor when both present', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      actor: { kind: 'operator', name: 'Top-level Actor' },
+      meta: {
+        actor: { kind: 'digital_worker', name: 'Meta Actor' },
+      },
+    }));
+    expect(normalized.actor?.name).toBe('Meta Actor');
+    expect(normalized.actor?.kind).toBe('digital_worker');
+  });
+
+  it('payload.actor wins over message.meta.actor when payload.meta.actor absent', () => {
+    const message = {
+      type: 'chat::answer',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 1,
+      ts: new Date(1000).toISOString(),
+      meta: { actor: { kind: 'operator', name: 'Message-level Actor' } },
+      payload: {
+        content: 'Hello',
+        role: 'assistant',
+        actor: { kind: 'digital_worker', name: 'Payload-level Actor' },
+      },
+    };
+    const normalized = normalizeCortexMessage(message);
+    expect(normalized.actor?.name).toBe('Payload-level Actor');
+    expect(normalized.actor?.kind).toBe('digital_worker');
+  });
+
+  it('extracts actor from message.meta.actor when no other source present', () => {
+    const message = {
+      type: 'chat::answer',
+      schema: '1.0',
+      session_id: 'sess_test',
+      seq: 1,
+      ts: new Date(1000).toISOString(),
+      meta: { actor: { kind: 'operator', name: 'Message-level Actor' } },
+      payload: { content: 'Hello', role: 'assistant' },
+    };
+    const normalized = normalizeCortexMessage(message);
+    expect(normalized.actor?.name).toBe('Message-level Actor');
+    expect(normalized.actor?.kind).toBe('operator');
+  });
+
+  it('normalizes avatar_url (snake_case) to avatarUrl', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      meta: {
+        actor: { kind: 'digital_worker', name: 'Bot', avatar_url: 'https://example.test/av.png' },
+      },
+    }));
+    expect(normalized.actor?.avatarUrl).toBe('https://example.test/av.png');
+  });
+
+  it('prefers camelCase avatarUrl over snake_case avatar_url', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::answer', {
+      content: 'Hello',
+      role: 'assistant',
+      meta: {
+        actor: { kind: 'digital_worker', name: 'Bot', avatarUrl: 'https://camel.test/av.png', avatar_url: 'https://snake.test/av.png' },
+      },
+    }));
+    expect(normalized.actor?.avatarUrl).toBe('https://camel.test/av.png');
+  });
+
+  it('chat::message (user) sets actor=null without requiring actor', () => {
+    const normalized = normalizeCortexMessage(createMessage('chat::message', {
+      content: 'Hello',
+      role: 'user',
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+
+  it('escalation::request sets actor=null (system marker, actor not required)', () => {
+    const normalized = normalizeCortexMessage(createMessage('escalation::request', {
+      escalation_id: 'esc_1',
+      reason: 'needs help',
+      allowed_actions: ['reply_user'],
+    }));
+    expect(normalized.actor).toBeNull();
+  });
+});

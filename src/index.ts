@@ -10,6 +10,8 @@ export { normalizeCortexMessage } from './normalize.js';
 export { ControllerError } from './errors.js';
 
 export type {
+  ChatActor,
+  ChatActorKind,
   ChatController,
   ChatControllerEvent,
   ChatControllerOptions,

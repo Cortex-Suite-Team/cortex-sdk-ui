@@ -1,4 +1,6 @@
 import type {
+  ChatActor,
+  ChatActorKind,
   ChatMessageViewModel,
   CortexTransportMessage,
   EscalationState,
@@ -41,6 +43,38 @@ function withoutInternalRefs(meta: Record<string, unknown>): Record<string, unkn
   return cleaned;
 }
 
+const KNOWN_ACTOR_KINDS: ReadonlySet<string> = new Set(['user', 'operator', 'digital_worker', 'system']);
+
+function extractActor(
+  message: CortexTransportMessage,
+  payload: Record<string, unknown>,
+): ChatActor | null {
+  // Explicit priority: payload.meta.actor > payload.actor > message.meta.actor
+  const payloadMeta = isRecord(payload['meta']) ? payload['meta'] as Record<string, unknown> : undefined;
+  const messageMeta = isRecord(message.meta) ? message.meta as Record<string, unknown> : undefined;
+
+  const raw =
+    (isRecord(payloadMeta?.['actor']) ? payloadMeta!['actor'] as Record<string, unknown> : null) ??
+    (isRecord(payload['actor']) ? payload['actor'] as Record<string, unknown> : null) ??
+    (isRecord(messageMeta?.['actor']) ? messageMeta!['actor'] as Record<string, unknown> : null);
+
+  if (!raw) return null;
+
+  const kind = asNonEmptyString(raw['kind']);
+  const name = asNonEmptyString(raw['name']);
+
+  if (!kind || !name || !KNOWN_ACTOR_KINDS.has(kind)) return null;
+
+  return {
+    kind: kind as ChatActorKind,
+    id: asNonEmptyString(raw['id']) ?? null,
+    name,
+    title: asNonEmptyString(raw['title']) ?? null,
+    subtitle: asNonEmptyString(raw['subtitle']) ?? null,
+    avatarUrl: asNonEmptyString(raw['avatarUrl']) ?? asNonEmptyString(raw['avatar_url']) ?? null,
+  };
+}
+
 export function normalizeCortexMessage(message: CortexTransportMessage): ChatMessageViewModel {
   const payload = asPayload(message);
   const payloadMeta = isRecord(payload['meta']) ? payload['meta'] : undefined;
@@ -59,6 +93,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'],
         status: 'final',
         ts: message.ts ?? null,
+        actor: null,
         clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
@@ -75,6 +110,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: resolveVisibleContent(payload),
         status: 'final',
         ts: message.ts ?? null,
+        actor: extractActor(message, payload),
         clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
@@ -92,6 +128,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'],
         status: 'streaming',
         ts: message.ts ?? null,
+        actor: extractActor(message, payload),
         meta: {
           ...mergedMeta,
           ...buildAttachmentMeta(payload),
@@ -108,6 +145,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'],
         status: 'final',
         ts: message.ts ?? null,
+        actor: extractActor(message, payload),
         meta: {
           ...mergedMeta,
           ...buildAttachmentMeta(payload),
@@ -126,6 +164,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: resolveVisibleContent(payload),
         status: 'final',
         ts: message.ts ?? null,
+        actor: extractActor(message, payload),
         clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
@@ -143,6 +182,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'] ?? payload['message'] ?? payload['reason'] ?? payload,
         status: 'final',
         ts: message.ts ?? null,
+        actor: null,
         meta: {
           ...mergedMeta,
           escalationId: asNonEmptyString(payload['escalation_id']),
@@ -162,6 +202,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'] ?? payload,
         status: 'final',
         ts: message.ts ?? null,
+        actor: extractActor(message, payload),
         meta: {
           ...mergedMeta,
           escalationId: asNonEmptyString(payload['escalation_id']),
@@ -179,6 +220,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: asNonEmptyString(payload['message']) ?? 'Runtime error',
         status: 'error',
         ts: message.ts ?? null,
+        actor: null,
         meta: {
           ...mergedMeta,
           code: asNonEmptyString(payload['code']) ?? undefined,
@@ -194,6 +236,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload['content'],
         status: 'final',
         ts: message.ts ?? null,
+        actor: extractActor(message, payload),
         meta: {
           ...mergedMeta,
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
@@ -210,6 +253,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload,
         status: 'final',
         ts: message.ts ?? null,
+        actor: null,
         meta: mergedMeta,
       };
 
@@ -222,6 +266,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         content: payload,
         status: 'final',
         ts: message.ts ?? null,
+        actor: null,
         meta: {
           ...mergedMeta,
           rawType: message.type,

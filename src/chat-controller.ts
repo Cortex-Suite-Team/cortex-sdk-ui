@@ -564,6 +564,9 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       awaitingAnswer = false;
       activeQuestion = null;
       resetWorkerStateToIdle();
+      if (message.type === 'system::error') {
+        escalationController.clearEscalation();
+      }
     }
 
     if (message.type === 'sandbox::lifecycle') {

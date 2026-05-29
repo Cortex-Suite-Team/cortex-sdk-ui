@@ -425,7 +425,7 @@ describe('parseRawActor', () => {
       id: 'proj_1',
       name: 'Aria',
       title: 'Digital worker',
-      subtitle: '',
+      subtitle: null,
       avatarUrl: 'https://example.com/avatar.png',
     });
   });

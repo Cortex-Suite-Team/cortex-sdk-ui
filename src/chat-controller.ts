@@ -152,7 +152,7 @@ function getSessionContextCorrespondent(client: ChatControllerOptions['client'])
         subtitle: asNonEmptyString(contextCorrespondent['subtitle']) ?? null,
         avatarUrl:
           asNonEmptyString(contextCorrespondent['avatarUrl'])
-          ?? asNonEmptyString(contextCorrespondent['avatar_url'])
+          ?? asNonEmptyString((contextCorrespondent as Record<string, unknown>)['avatar_url'])
           ?? null,
       };
     }

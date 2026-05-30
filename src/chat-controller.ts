@@ -150,7 +150,10 @@ function getSessionContextCorrespondent(client: ChatControllerOptions['client'])
         name,
         title: asNonEmptyString(contextCorrespondent['title']) ?? null,
         subtitle: asNonEmptyString(contextCorrespondent['subtitle']) ?? null,
-        avatarUrl: asNonEmptyString(contextCorrespondent['avatarUrl']) ?? null,
+        avatarUrl:
+          asNonEmptyString(contextCorrespondent['avatarUrl'])
+          ?? asNonEmptyString(contextCorrespondent['avatar_url'])
+          ?? null,
       };
     }
   }

@@ -151,16 +151,17 @@ describe('normalizeCortexMessage', () => {
     expect(normalized.meta?.actor).toMatchObject({ kind: 'digital_worker', name: 'Robot Vasya' });
   });
 
-  it('preserves attachments for chat::answer', () => {
+  it('preserves attachments for chat::answer but strips the internal file_id (R9)', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::answer', {
       content: 'Here is your file.',
       role: 'assistant',
       answer_kind: 'final',
       turn_id: 'turn_1',
       attachments: [{
+        file_ref: 'sf_1',
         file_id: 'file_1',
         filename: 'report.pdf',
-        download_url: 'https://example.test/download/report.pdf',
+        download_mint_url: '/sessions/sess_1/files/sf_1/download-token',
       }],
     }));
 
@@ -168,11 +169,14 @@ describe('normalizeCortexMessage', () => {
       turnId: 'turn_1',
       answerKind: 'final',
       attachments: [{
-        file_id: 'file_1',
+        file_ref: 'sf_1',
         filename: 'report.pdf',
-        download_url: 'https://example.test/download/report.pdf',
+        download_mint_url: '/sessions/sess_1/files/sf_1/download-token',
       }],
     });
+    // The internal blob handle must never survive normalization onto a rendered/historical surface.
+    const attachments = normalized.meta?.attachments as Array<Record<string, unknown>>;
+    expect(attachments[0]).not.toHaveProperty('file_id');
   });
 
   it('preserves payload.meta.chat_title in ChatMessageViewModel.meta and does not render it as content', () => {

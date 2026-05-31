@@ -14,9 +14,24 @@ import {
   toEscalationActions,
 } from './utils.js';
 
+// Internal blob handles that must never reach a rendered/historical surface (R9). Only the live
+// runtime-bound inbox payload may carry these; defense in depth in case one leaks to the client.
+const INTERNAL_ATTACHMENT_KEYS = ['file_id', 'blob_ref', 'storage_key'];
+
+function stripInternalAttachmentFields(attachments: unknown[]): unknown[] {
+  return attachments.map((att) => {
+    if (!isRecord(att)) return att;
+    const cleaned = { ...att };
+    for (const key of INTERNAL_ATTACHMENT_KEYS) {
+      delete cleaned[key];
+    }
+    return cleaned;
+  });
+}
+
 function buildAttachmentMeta(payload: Record<string, unknown>): Record<string, unknown> {
   return Array.isArray(payload['attachments'])
-    ? { attachments: payload['attachments'] }
+    ? { attachments: stripInternalAttachmentFields(payload['attachments']) }
     : {};
 }
 
@@ -40,6 +55,10 @@ function resolveVisibleContent(payload: Record<string, unknown>): unknown {
 function withoutInternalRefs(meta: Record<string, unknown>): Record<string, unknown> {
   const cleaned = { ...meta };
   delete cleaned['resume_event_ref'];
+  // R9: never surface an internal blob handle at the message-meta level either.
+  for (const key of INTERNAL_ATTACHMENT_KEYS) {
+    delete cleaned[key];
+  }
   return cleaned;
 }
 

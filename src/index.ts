@@ -6,8 +6,14 @@ export {
 } from './content-render.js';
 export { createEscalationController } from './escalation-controller.js';
 export { createTranscriptStore } from './transcript-store.js';
+export {
+  DEFAULT_TRANSCRIPT_TTL_MS,
+  createIndexedDbTranscriptPersistence,
+  sanitizeTranscriptMessage,
+} from './transcript-persistence.js';
 export { normalizeCortexMessage, parseRawActor } from './normalize.js';
 export { ControllerError } from './errors.js';
+export { TRANSCRIPT_SCHEMA_VERSION } from './types.js';
 
 export type {
   ChatActor,
@@ -41,4 +47,7 @@ export type {
   TranscriptStore,
   TranscriptStoreOptions,
   TranscriptStoreResult,
+  PersistedTranscript,
+  PersistedTranscriptMessage,
+  TranscriptPersistence,
 } from './types.js';

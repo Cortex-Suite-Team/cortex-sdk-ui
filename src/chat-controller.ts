@@ -6,6 +6,11 @@ import { createDebugLogger } from './debug.js';
 import { createEscalationController } from './escalation-controller.js';
 import { normalizeCortexMessage } from './normalize.js';
 import { createTranscriptStore } from './transcript-store.js';
+import {
+  DEFAULT_TRANSCRIPT_TTL_MS,
+  createIndexedDbTranscriptPersistence,
+  sanitizeTranscriptMessage,
+} from './transcript-persistence.js';
 import type {
   ChatAuthState,
   ChatController,
@@ -22,6 +27,7 @@ import type {
   WorkerState,
   WorkerStateName,
 } from './types.js';
+import { TRANSCRIPT_SCHEMA_VERSION } from './types.js';
 import {
   TERMINAL_SESSION_STATES,
   asNonEmptyString,
@@ -32,6 +38,7 @@ import {
 } from './utils.js';
 
 const MESSAGE_SEND_TIMEOUT_MS = 15_000;
+const TRANSCRIPT_SAVE_DEBOUNCE_MS = 250;
 const LIFECYCLE_SESSION_STATE_MAP: Record<string, string> = {
   active: 'ACTIVE',
   waiting: 'WAITING',
@@ -182,6 +189,15 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   const listeners = new Set<(state: ChatState) => void>();
   const transcriptStore = createTranscriptStore();
   const debug = createDebugLogger(options.debug);
+  let transcriptPersistence = options.transcriptPersistence === undefined
+    ? createIndexedDbTranscriptPersistence()
+    : options.transcriptPersistence;
+  const transcriptTtlMs = options.transcriptTtlMs ?? DEFAULT_TRANSCRIPT_TTL_MS;
+  let persistenceSessionKey: string | null = null;
+  let restoredSessionKey: string | null = null;
+  let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
+  let persistenceOperation: Promise<void> = Promise.resolve();
+  const pendingPersistedMessageIds = new Set<string>();
   let unsubscribeFromClient: (() => void) | null = null;
   let destroyed = false;
   let lastError: ChatErrorViewModel | null = null;
@@ -215,6 +231,105 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
   function getSessionId(): string | null {
     return options.client.sessionId ?? options.client.sessionContext?.sessionId ?? null;
+  }
+
+  function getPersistenceSessionKey(): string | null {
+    const sessionId = getSessionId();
+    return sessionId ? `session:${sessionId}` : null;
+  }
+
+  function disablePersistence(error: unknown): void {
+    debug.log('[sdk-ui] transcript persistence disabled', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    transcriptPersistence = null;
+    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    persistenceTimer = null;
+    pendingPersistedMessageIds.clear();
+    persistenceSessionKey = null;
+  }
+
+  async function flushTranscriptPersistence(): Promise<void> {
+    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    persistenceTimer = null;
+    const persistence = transcriptPersistence;
+    const sessionKey = persistenceSessionKey;
+    if (!persistence || !sessionKey || pendingPersistedMessageIds.size === 0) return;
+    const changedIds = Array.from(pendingPersistedMessageIds);
+    pendingPersistedMessageIds.clear();
+    const now = Date.now();
+    const snapshot = transcriptStore.getSnapshot();
+    const changedIdSet = new Set(changedIds);
+    const changedMessages = snapshot.flatMap((message, order) => (
+      changedIdSet.has(message.id)
+        ? [{ order, message: sanitizeTranscriptMessage(message) }]
+        : []
+    ));
+    persistenceOperation = persistenceOperation.then(() => persistence.save(sessionKey, {
+      version: TRANSCRIPT_SCHEMA_VERSION,
+      sessionKey,
+      updatedAt: now,
+      expiresAt: now + transcriptTtlMs,
+    }, changedMessages)).catch(disablePersistence);
+    await persistenceOperation;
+  }
+
+  function queueTranscriptPersistence(message: ChatMessageViewModel | undefined): void {
+    if (!message || !transcriptPersistence || !persistenceSessionKey) return;
+    pendingPersistedMessageIds.add(message.id);
+    if (persistenceTimer !== null) return;
+    persistenceTimer = setTimeout(() => {
+      void flushTranscriptPersistence();
+    }, TRANSCRIPT_SAVE_DEBOUNCE_MS);
+    unrefTimer(persistenceTimer);
+  }
+
+  async function restoreTranscript(): Promise<void> {
+    const persistence = transcriptPersistence;
+    const sessionKey = getPersistenceSessionKey();
+    persistenceSessionKey = sessionKey;
+    if (!persistence || !sessionKey || restoredSessionKey === sessionKey) return;
+    if (restoredSessionKey !== null && restoredSessionKey !== sessionKey) transcriptStore.reset();
+    restoredSessionKey = sessionKey;
+    try {
+      const now = Date.now();
+      await persistence.purgeExpired(now);
+      const persisted = await persistence.load(sessionKey);
+      if (!persisted) return;
+      const valid = persisted.version === TRANSCRIPT_SCHEMA_VERSION
+        && persisted.sessionKey === sessionKey
+        && persisted.expiresAt > now
+        && Array.isArray(persisted.messages)
+        && persisted.messages.every((message) => (
+          isRecord(message)
+          && typeof message.id === 'string'
+          && typeof message.type === 'string'
+          && typeof message.role === 'string'
+        ));
+      if (!valid) {
+        await persistence.delete(sessionKey);
+        return;
+      }
+      const existingIds = new Set(transcriptStore.getSnapshot().map((message) => message.id));
+      for (const message of persisted.messages) {
+        if (!existingIds.has(message.id)) transcriptStore.upsertLocalMessage(message);
+      }
+    } catch (error) {
+      disablePersistence(error);
+    }
+  }
+
+  function deletePersistedTranscript(): void {
+    const persistence = transcriptPersistence;
+    const sessionKey = persistenceSessionKey ?? getPersistenceSessionKey();
+    if (!persistence || !sessionKey) return;
+    if (persistenceTimer !== null) clearTimeout(persistenceTimer);
+    persistenceTimer = null;
+    pendingPersistedMessageIds.clear();
+    persistenceSessionKey = null;
+    persistenceOperation = persistenceOperation
+      .then(() => persistence.delete(sessionKey))
+      .catch(disablePersistence);
   }
 
   function isSessionReady(): boolean {
@@ -432,6 +547,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     if (TERMINAL_SESSION_STATES.has((nextSessionState ?? '').toUpperCase())) {
       awaitingAnswer = false;
       resetWorkerStateToIdle();
+      deletePersistedTranscript();
       return true;
     }
 
@@ -515,6 +631,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     }
 
     const result = transcriptStore.ingest(message);
+    queueTranscriptPersistence(result.mutation?.message);
     if (result.mutation) {
       emit({
         type: result.mutation.type,
@@ -617,7 +734,10 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
     async connect() {
       ensureClientSubscription();
+      await restoreTranscript();
+      emitStateChanged();
       await options.client.connect();
+      await restoreTranscript();
       emitStateChanged();
     },
 
@@ -626,6 +746,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       sessionStateOverride = null;
       authState = { state: 'none' };
       if (options.client.disconnect) {
+        await flushTranscriptPersistence();
         await options.client.disconnect();
       }
       teardownClientSubscription();
@@ -665,7 +786,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         originalPayload: sendPayload,
       };
 
-      transcriptStore.upsertLocalMessage(optimistic);
+      const optimisticResult = transcriptStore.upsertLocalMessage(optimistic);
+      queueTranscriptPersistence(optimisticResult.mutation?.message);
       emitStateChanged();
 
       try {
@@ -675,12 +797,13 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
-        transcriptStore.upsertLocalMessage({
+        const sentResult = transcriptStore.upsertLocalMessage({
           ...optimistic,
           deliveryStatus: 'sent',
           retryable: false,
           sendError: undefined,
         });
+        queueTranscriptPersistence(sentResult.mutation?.message);
         awaitingAnswer = true;
         debug.log('[sdk-ui] sendMessage -> client.sendMessage done', {
           clientMsgId,
@@ -695,7 +818,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           error: err instanceof Error ? err.message : String(err),
         });
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
-        transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'failed', retryable: true, sendError });
+        const failedResult = transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'failed', retryable: true, sendError });
+        queueTranscriptPersistence(failedResult.mutation?.message);
         emitStateChanged();
         return { ok: false, messageId: id, clientMsgId, error: sendError };
       }
@@ -715,7 +839,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         retryable: false,
         sendError: undefined,
       };
-      transcriptStore.upsertLocalMessage(updated);
+      const retryingResult = transcriptStore.upsertLocalMessage(updated);
+      queueTranscriptPersistence(retryingResult.mutation?.message);
       emitStateChanged();
 
       try {
@@ -725,12 +850,13 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           MESSAGE_SEND_TIMEOUT_MS,
           'Message was not sent',
         );
-        transcriptStore.upsertLocalMessage({
+        const sentResult = transcriptStore.upsertLocalMessage({
           ...updated,
           deliveryStatus: 'sent',
           retryable: false,
           sendError: undefined,
         });
+        queueTranscriptPersistence(sentResult.mutation?.message);
         awaitingAnswer = true;
         debug.log('[sdk-ui] retryMessage -> client.sendMessage done', {
           clientMsgId,
@@ -745,7 +871,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           error: err instanceof Error ? err.message : String(err),
         });
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
-        transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'failed', retryable: true, sendError });
+        const failedResult = transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'failed', retryable: true, sendError });
+        queueTranscriptPersistence(failedResult.mutation?.message);
         emitStateChanged();
         return { ok: false, messageId, clientMsgId, error: sendError };
       }

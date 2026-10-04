@@ -231,6 +231,10 @@ export interface EscalationControllerOptions {
 
 export interface ChatControllerOptions {
   client: CortexClientLike;
+  /** Browser-local normalized transcript persistence. Defaults to IndexedDB when available. */
+  transcriptPersistence?: TranscriptPersistence | null;
+  /** Retention for abandoned local transcripts. */
+  transcriptTtlMs?: number;
   mode?: 'end_user' | 'operator';
   debug?: boolean;
   onStateChange?: (state: ChatState) => void;
@@ -244,6 +248,33 @@ export interface ChatControllerOptions {
     isSessionReady: boolean;
     escalation: EscalationState | null;
   }) => { locked: boolean; reason?: string };
+}
+
+export const TRANSCRIPT_SCHEMA_VERSION = 1 as const;
+
+export interface PersistedTranscript {
+  version: typeof TRANSCRIPT_SCHEMA_VERSION;
+  sessionKey: string;
+  updatedAt: number;
+  expiresAt: number;
+  messages: ChatMessageViewModel[];
+}
+
+export interface PersistedTranscriptMessage {
+  order: number;
+  message: ChatMessageViewModel;
+}
+
+export interface TranscriptPersistence {
+  load(sessionKey: string): Promise<PersistedTranscript | null>;
+  /** Upsert only the supplied normalized messages at their transcript order. */
+  save(
+    sessionKey: string,
+    transcript: Omit<PersistedTranscript, 'messages'>,
+    messages: readonly PersistedTranscriptMessage[],
+  ): Promise<void>;
+  delete(sessionKey: string): Promise<void>;
+  purgeExpired(now: number): Promise<void>;
 }
 
 export interface TranscriptStoreMutation {

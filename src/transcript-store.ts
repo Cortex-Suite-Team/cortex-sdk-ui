@@ -81,10 +81,6 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     message: ChatMessageViewModel,
     clientMsgId: string,
   ): boolean {
-    const originalPayloadMeta = isRecord(message.originalPayload?.meta)
-      ? message.originalPayload.meta
-      : null;
-
     return (
       message.id.startsWith('client:')
       && message.type === 'chat::message'
@@ -95,7 +91,8 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
         || message.deliveryStatus === 'sent'
         || message.deliveryStatus === 'failed'
       )
-      && originalPayloadMeta?.['client_msg_id'] === clientMsgId
+      && message.meta?.['client_msg_id'] === clientMsgId
+      && (message.originalPayload !== undefined || message.meta?.['persisted_outgoing'] === true)
     );
   }
 

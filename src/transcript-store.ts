@@ -29,7 +29,40 @@ function shouldStoreInTranscript(message: CortexTransportMessage): boolean {
 }
 
 export function createTranscriptStore(options: TranscriptStoreOptions = {}): TranscriptStore {
-  const transcript = (options.initialTranscript ?? []).map((message) => cloneMessage(message));
+  function freezeOwnedValue<T>(value: T, seen = new WeakSet<object>()): T {
+    if (value === null || typeof value !== 'object' || seen.has(value)) return value;
+    seen.add(value);
+    if (Array.isArray(value)) {
+      for (const entry of value) freezeOwnedValue(entry, seen);
+      return Object.freeze(value);
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype === Object.prototype || prototype === null) {
+      for (const entry of Object.values(value)) freezeOwnedValue(entry, seen);
+      return Object.freeze(value);
+    }
+    return value;
+  }
+
+  function createOwnedMessage(message: ChatMessageViewModel): ChatMessageViewModel {
+    return freezeOwnedValue(cloneMessage(message));
+  }
+
+  const transcript = (options.initialTranscript ?? []).map(createOwnedMessage);
+  const readonlyTranscript = new Proxy(transcript, {
+    set() {
+      throw new TypeError('Transcript view is read-only');
+    },
+    deleteProperty() {
+      throw new TypeError('Transcript view is read-only');
+    },
+    defineProperty() {
+      throw new TypeError('Transcript view is read-only');
+    },
+    setPrototypeOf() {
+      throw new TypeError('Transcript view is read-only');
+    },
+  }) as readonly ChatMessageViewModel[];
   const indexById = new Map<string, number>();
   const indexByClientMsgId = new Map<string, number>();
   const listeners = new Set<(mutation: TranscriptStoreMutation | null) => void>();
@@ -51,15 +84,16 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
   }
 
   function addMessage(message: ChatMessageViewModel): TranscriptStoreResult {
-    transcript.push(message);
+    const ownedMessage = createOwnedMessage(message);
+    transcript.push(ownedMessage);
     const index = transcript.length - 1;
-    indexById.set(message.id, index);
-    if (message.clientMsgId) indexByClientMsgId.set(message.clientMsgId, index);
+    indexById.set(ownedMessage.id, index);
+    if (ownedMessage.clientMsgId) indexByClientMsgId.set(ownedMessage.clientMsgId, index);
     revision += 1;
     const mutation = {
       type: 'message_added' as const,
       index,
-      message: cloneMessage(message),
+      message: ownedMessage,
     };
     notify(mutation);
     return {
@@ -69,20 +103,21 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
   function updateMessage(index: number, message: ChatMessageViewModel): TranscriptStoreResult {
     const previous = transcript[index];
-    transcript[index] = message;
-    if (previous && previous.id !== message.id) {
+    const ownedMessage = createOwnedMessage(message);
+    transcript[index] = ownedMessage;
+    if (previous && previous.id !== ownedMessage.id) {
       indexById.delete(previous.id);
     }
-    if (previous?.clientMsgId && previous.clientMsgId !== message.clientMsgId) {
+    if (previous?.clientMsgId && previous.clientMsgId !== ownedMessage.clientMsgId) {
       indexByClientMsgId.delete(previous.clientMsgId);
     }
-    indexById.set(message.id, index);
-    if (message.clientMsgId) indexByClientMsgId.set(message.clientMsgId, index);
+    indexById.set(ownedMessage.id, index);
+    if (ownedMessage.clientMsgId) indexByClientMsgId.set(ownedMessage.clientMsgId, index);
     revision += 1;
     const mutation = {
       type: 'message_updated' as const,
       index,
-      message: cloneMessage(message),
+      message: ownedMessage,
     };
     notify(mutation);
     return {
@@ -192,7 +227,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     },
 
     getView() {
-      return transcript;
+      return readonlyTranscript;
     },
 
     getEntry(id) {

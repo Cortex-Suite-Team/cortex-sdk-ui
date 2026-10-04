@@ -384,7 +384,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   }
 
   function computeState(
-    transcript: ChatMessageViewModel[],
+    transcript: readonly ChatMessageViewModel[],
     transcriptMutation: TranscriptStoreMutation | null,
   ): ChatState {
     const channelState = getChannelState();

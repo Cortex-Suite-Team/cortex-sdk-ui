@@ -83,10 +83,32 @@ export function mapRole(value: unknown, fallback: ChatMessageRole): ChatMessageR
 }
 
 export function cloneMessage(message: ChatMessageViewModel): ChatMessageViewModel {
-  return {
-    ...message,
-    meta: message.meta ? { ...message.meta } : undefined,
-  };
+  const clones = new WeakMap<object, unknown>();
+
+  function cloneValue<T>(value: T): T {
+    if (value === null || typeof value !== 'object') return value;
+    const cached = clones.get(value);
+    if (cached !== undefined) return cached as T;
+    if (value instanceof Date) return new Date(value.getTime()) as T;
+    if (Array.isArray(value)) {
+      const clone: unknown[] = [];
+      clones.set(value, clone);
+      for (const entry of value) clone.push(cloneValue(entry));
+      return clone as T;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype === Object.prototype || prototype === null) {
+      const clone: Record<PropertyKey, unknown> = {};
+      clones.set(value, clone);
+      for (const key of Reflect.ownKeys(value)) {
+        clone[key] = cloneValue((value as Record<PropertyKey, unknown>)[key]);
+      }
+      return clone as T;
+    }
+    return value;
+  }
+
+  return cloneValue(message);
 }
 
 export function cloneEscalation(state: EscalationState | null): EscalationState | null {

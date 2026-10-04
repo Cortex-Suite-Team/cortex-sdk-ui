@@ -108,7 +108,7 @@ describe('transcript persistence', () => {
     const controller = createChatController({ client, transcriptPersistence: persistence });
     await controller.connect();
 
-    let transcriptView: ChatMessageViewModel[] | null = null;
+    let transcriptView: readonly ChatMessageViewModel[] | null = null;
     let untouchedMessage: ChatMessageViewModel | null = null;
     let emissions = 0;
     const unsubscribe = controller.subscribe((state) => {
@@ -128,9 +128,67 @@ describe('transcript persistence', () => {
       }, index + 1));
     }
     expect(emissions).toBe(100);
-    expect((transcriptView as ChatMessageViewModel[] | null)?.[49_999].content).toBe('x'.repeat(100));
+    expect((transcriptView as readonly ChatMessageViewModel[] | null)?.[49_999].content).toBe('x'.repeat(100));
     unsubscribe();
     client.emit(createMessage('system::lifecycle', { status: 'completed' }, 101));
+  });
+
+  it('isolates store ownership from subscriber mutations without breaking persistence or reconnect deduplication', async () => {
+    const persistence = new MemoryPersistence();
+    const client = createMockClient();
+    const controller = createChatController({ client, transcriptPersistence: persistence });
+    await controller.connect();
+
+    let mutationAttempts = 0;
+    const unsubscribe = controller.subscribe((state) => {
+      const transcript = state.transcript as ChatMessageViewModel[];
+      expect(() => transcript.splice(0, 1)).toThrow(TypeError);
+      expect(() => transcript.push({
+        id: 'consumer:injected',
+        type: 'chat::message',
+        role: 'user',
+        content: 'injected',
+      })).toThrow(TypeError);
+      expect(() => { transcript[0].content = 'tampered'; }).toThrow(TypeError);
+      expect(() => {
+        const nested = transcript[0].meta?.['nested'] as Record<string, unknown>;
+        nested.value = 'tampered';
+      }).toThrow(TypeError);
+      mutationAttempts += 1;
+    });
+
+    client.emit(createMessage('chat::answer', {
+      role: 'assistant',
+      content: 'authoritative',
+      turn_id: 'ownership',
+      meta: { nested: { value: 'safe' } },
+    }, 7));
+    unsubscribe();
+
+    expect(mutationAttempts).toBe(1);
+    expect(controller.getState().transcript).toEqual([
+      expect.objectContaining({
+        id: 'turn:ownership',
+        content: 'authoritative',
+        meta: expect.objectContaining({ nested: { value: 'safe' } }),
+      }),
+    ]);
+    await controller.disconnect();
+    expect(persistence.records.get('session:sess_test')?.messages).toEqual([
+      expect.objectContaining({ id: 'turn:ownership', content: 'authoritative' }),
+    ]);
+
+    const reconnectClient = createMockClient();
+    const reconnect = createChatController({ client: reconnectClient, transcriptPersistence: persistence });
+    await reconnect.connect();
+    reconnectClient.emit(createMessage('chat::answer', {
+      role: 'assistant',
+      content: 'authoritative',
+      turn_id: 'ownership',
+      meta: { nested: { value: 'safe' } },
+    }, 7));
+    expect(reconnect.getState().transcript).toHaveLength(1);
+    expect(reconnect.getState().transcript[0].meta?.['nested']).toEqual({ value: 'safe' });
   });
 
   it('deletes terminal sessions and rejects mismatched or unknown persisted records', async () => {

@@ -4,6 +4,7 @@ import {
   sanitizeTranscriptMessage,
 } from '../src/index.js';
 import type {
+  ChatMessageViewModel,
   PersistedTranscript,
   PersistedTranscriptMessage,
   TranscriptPersistence,
@@ -91,6 +92,45 @@ describe('transcript persistence', () => {
     expect(saved?.messages).toHaveLength(1);
     expect(saved?.messages[0].content).toBe('Hello world');
     expect(persistence.changedBatches.at(-1)).toHaveLength(1);
+  });
+
+  it('propagates repeated partials over 50k messages with a stable transcript view', async () => {
+    const persistence = new MemoryPersistence();
+    const messages = Array.from({ length: 50_000 }, (_, index) => ({
+      id: index === 49_999 ? 'turn:long-stream' : `history:${index}`,
+      type: index === 49_999 ? 'chat::partial' : 'chat::answer',
+      role: 'assistant' as const,
+      content: index === 49_999 ? '' : `history ${index}`,
+      status: index === 49_999 ? 'streaming' as const : 'final' as const,
+    }));
+    persistence.records.set('session:sess_test', record(messages));
+    const client = createMockClient();
+    const controller = createChatController({ client, transcriptPersistence: persistence });
+    await controller.connect();
+
+    let transcriptView: ChatMessageViewModel[] | null = null;
+    let untouchedMessage: ChatMessageViewModel | null = null;
+    let emissions = 0;
+    const unsubscribe = controller.subscribe((state) => {
+      emissions += 1;
+      transcriptView ??= state.transcript;
+      untouchedMessage ??= state.transcript[0];
+      expect(state.transcript).toBe(transcriptView);
+      expect(state.transcript[0]).toBe(untouchedMessage);
+      expect(state.transcriptMutation?.index).toBe(49_999);
+    });
+
+    for (let index = 0; index < 100; index += 1) {
+      client.emit(createMessage('chat::partial', {
+        content: 'x',
+        role: 'assistant',
+        turn_id: 'long-stream',
+      }, index + 1));
+    }
+    expect(emissions).toBe(100);
+    expect((transcriptView as ChatMessageViewModel[] | null)?.[49_999].content).toBe('x'.repeat(100));
+    unsubscribe();
+    client.emit(createMessage('system::lifecycle', { status: 'completed' }, 101));
   });
 
   it('deletes terminal sessions and rejects mismatched or unknown persisted records', async () => {

@@ -1,7 +1,38 @@
+import { jest } from '@jest/globals';
 import { createTranscriptStore } from '../src/index.js';
 import { createMessage } from './helpers.js';
 
 describe('createTranscriptStore', () => {
+  it.each([10_000, 50_000])('updates repeated partials without snapshotting a %i-message transcript', (count) => {
+    const initialTranscript = Array.from({ length: count }, (_, index) => ({
+      id: index === count - 1 ? 'turn:long-stream' : `history:${index}`,
+      type: index === count - 1 ? 'chat::partial' : 'chat::answer',
+      role: 'assistant' as const,
+      content: index === count - 1 ? '' : `history ${index}`,
+      status: index === count - 1 ? 'streaming' as const : 'final' as const,
+    }));
+    const store = createTranscriptStore({ initialTranscript });
+    const view = store.getView();
+    const untouchedMessage = view[0];
+    const snapshotSpy = jest.spyOn(store, 'getSnapshot');
+
+    for (let index = 0; index < 100; index += 1) {
+      store.ingest(createMessage('chat::partial', {
+        content: 'x',
+        role: 'assistant',
+        turn_id: 'long-stream',
+      }, index + 1));
+    }
+
+    expect(snapshotSpy).not.toHaveBeenCalled();
+    expect(store.getView()).toBe(view);
+    expect(store.getView()[0]).toBe(untouchedMessage);
+    expect(store.getEntry('turn:long-stream')).toMatchObject({
+      index: count - 1,
+      message: { content: 'x'.repeat(100) },
+    });
+  });
+
   it('aggregates chat::partial by turn_id and finalizes with chat::answer', () => {
     const store = createTranscriptStore();
 

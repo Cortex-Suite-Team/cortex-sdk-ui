@@ -188,6 +188,10 @@ export interface ChatState {
     isStale: boolean;
   };
   transcript: ChatMessageViewModel[];
+  /** Monotonic revision for incremental transcript consumers. */
+  transcriptRevision: number;
+  /** The mutation that produced this state emission, if any. */
+  transcriptMutation: TranscriptStoreMutation | null;
   input: {
     locked: boolean;
     reason?: string;
@@ -279,11 +283,11 @@ export interface TranscriptPersistence {
 
 export interface TranscriptStoreMutation {
   type: 'message_added' | 'message_updated';
+  index: number;
   message: ChatMessageViewModel;
 }
 
 export interface TranscriptStoreResult {
-  transcript: ChatMessageViewModel[];
   mutation?: TranscriptStoreMutation;
   error?: ChatErrorViewModel;
 }
@@ -294,7 +298,11 @@ export interface TranscriptStoreOptions {
 
 export interface TranscriptStore {
   getSnapshot(): ChatMessageViewModel[];
-  subscribe(listener: (transcript: ChatMessageViewModel[]) => void): () => void;
+  /** Stable read view; messages are replaced immutably by index. */
+  getView(): ChatMessageViewModel[];
+  getEntry(id: string): { index: number; message: ChatMessageViewModel } | null;
+  getRevision(): number;
+  subscribe(listener: (mutation: TranscriptStoreMutation | null) => void): () => void;
   ingest(message: CortexTransportMessage): TranscriptStoreResult;
   reset(): void;
   upsertLocalMessage(message: ChatMessageViewModel): TranscriptStoreResult;

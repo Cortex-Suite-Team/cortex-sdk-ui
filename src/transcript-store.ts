@@ -4,6 +4,7 @@ import type {
   ChatMessageViewModel,
   CortexTransportMessage,
   TranscriptStore,
+  TranscriptStoreMutation,
   TranscriptStoreOptions,
   TranscriptStoreResult,
 } from './types.js';
@@ -30,33 +31,39 @@ function shouldStoreInTranscript(message: CortexTransportMessage): boolean {
 export function createTranscriptStore(options: TranscriptStoreOptions = {}): TranscriptStore {
   const transcript = (options.initialTranscript ?? []).map((message) => cloneMessage(message));
   const indexById = new Map<string, number>();
-  const listeners = new Set<(transcript: ChatMessageViewModel[]) => void>();
+  const indexByClientMsgId = new Map<string, number>();
+  const listeners = new Set<(mutation: TranscriptStoreMutation | null) => void>();
+  let revision = 0;
 
   for (const [index, message] of transcript.entries()) {
     indexById.set(message.id, index);
+    if (message.clientMsgId) indexByClientMsgId.set(message.clientMsgId, index);
   }
 
   function snapshot(): ChatMessageViewModel[] {
     return transcript.map((message) => cloneMessage(message));
   }
 
-  function notify() {
-    const nextSnapshot = snapshot();
+  function notify(mutation: TranscriptStoreMutation | null) {
     for (const listener of Array.from(listeners)) {
-      listener(nextSnapshot);
+      listener(mutation);
     }
   }
 
   function addMessage(message: ChatMessageViewModel): TranscriptStoreResult {
     transcript.push(message);
-    indexById.set(message.id, transcript.length - 1);
-    notify();
+    const index = transcript.length - 1;
+    indexById.set(message.id, index);
+    if (message.clientMsgId) indexByClientMsgId.set(message.clientMsgId, index);
+    revision += 1;
+    const mutation = {
+      type: 'message_added' as const,
+      index,
+      message: cloneMessage(message),
+    };
+    notify(mutation);
     return {
-      transcript: snapshot(),
-      mutation: {
-        type: 'message_added',
-        message: cloneMessage(message),
-      },
+      mutation,
     };
   }
 
@@ -66,14 +73,20 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     if (previous && previous.id !== message.id) {
       indexById.delete(previous.id);
     }
+    if (previous?.clientMsgId && previous.clientMsgId !== message.clientMsgId) {
+      indexByClientMsgId.delete(previous.clientMsgId);
+    }
     indexById.set(message.id, index);
-    notify();
+    if (message.clientMsgId) indexByClientMsgId.set(message.clientMsgId, index);
+    revision += 1;
+    const mutation = {
+      type: 'message_updated' as const,
+      index,
+      message: cloneMessage(message),
+    };
+    notify(mutation);
     return {
-      transcript: snapshot(),
-      mutation: {
-        type: 'message_updated',
-        message: cloneMessage(message),
-      },
+      mutation,
     };
   }
 
@@ -100,12 +113,10 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     if (!clientMsgId) {
       return undefined;
     }
-    for (const [index, message] of transcript.entries()) {
-      if (isReconcileableOutgoingUserMessage(message, clientMsgId)) {
-        return index;
-      }
-    }
-    return undefined;
+    const index = indexByClientMsgId.get(clientMsgId);
+    return index !== undefined && isReconcileableOutgoingUserMessage(transcript[index], clientMsgId)
+      ? index
+      : undefined;
   }
 
   function reconcileOptimisticUserMessage(
@@ -180,6 +191,20 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
       return snapshot();
     },
 
+    getView() {
+      return transcript;
+    },
+
+    getEntry(id) {
+      const index = indexById.get(id);
+      if (index === undefined) return null;
+      return { index, message: transcript[index] };
+    },
+
+    getRevision() {
+      return revision;
+    },
+
     subscribe(listener) {
       listeners.add(listener);
       return () => {
@@ -189,9 +214,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
     ingest(message) {
       if (!shouldStoreInTranscript(message)) {
-        return {
-          transcript: snapshot(),
-        };
+        return {};
       }
 
       const payload = asPayload(message);
@@ -268,7 +291,9 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
     reset() {
       transcript.length = 0;
       indexById.clear();
-      notify();
+      indexByClientMsgId.clear();
+      revision += 1;
+      notify(null);
     },
 
     upsertLocalMessage(message: ChatMessageViewModel): TranscriptStoreResult {

@@ -24,6 +24,7 @@ import type {
   QuestionOption,
   QuestionState,
   SendMessageResult,
+  TranscriptStoreMutation,
   WorkerState,
   WorkerStateName,
 } from './types.js';
@@ -197,7 +198,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
   let restoredSessionKey: string | null = null;
   let persistenceTimer: ReturnType<typeof setTimeout> | null = null;
   let persistenceOperation: Promise<void> = Promise.resolve();
-  const pendingPersistedMessageIds = new Set<string>();
+  const pendingPersistedMessages = new Map<string, { order: number; message: ChatMessageViewModel }>();
   let unsubscribeFromClient: (() => void) | null = null;
   let destroyed = false;
   let lastError: ChatErrorViewModel | null = null;
@@ -245,7 +246,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     transcriptPersistence = null;
     if (persistenceTimer !== null) clearTimeout(persistenceTimer);
     persistenceTimer = null;
-    pendingPersistedMessageIds.clear();
+    pendingPersistedMessages.clear();
     persistenceSessionKey = null;
   }
 
@@ -254,17 +255,10 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     persistenceTimer = null;
     const persistence = transcriptPersistence;
     const sessionKey = persistenceSessionKey;
-    if (!persistence || !sessionKey || pendingPersistedMessageIds.size === 0) return;
-    const changedIds = Array.from(pendingPersistedMessageIds);
-    pendingPersistedMessageIds.clear();
+    if (!persistence || !sessionKey || pendingPersistedMessages.size === 0) return;
+    const changedMessages = Array.from(pendingPersistedMessages.values());
+    pendingPersistedMessages.clear();
     const now = Date.now();
-    const snapshot = transcriptStore.getSnapshot();
-    const changedIdSet = new Set(changedIds);
-    const changedMessages = snapshot.flatMap((message, order) => (
-      changedIdSet.has(message.id)
-        ? [{ order, message: sanitizeTranscriptMessage(message) }]
-        : []
-    ));
     persistenceOperation = persistenceOperation.then(() => persistence.save(sessionKey, {
       version: TRANSCRIPT_SCHEMA_VERSION,
       sessionKey,
@@ -274,9 +268,12 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     await persistenceOperation;
   }
 
-  function queueTranscriptPersistence(message: ChatMessageViewModel | undefined): void {
-    if (!message || !transcriptPersistence || !persistenceSessionKey) return;
-    pendingPersistedMessageIds.add(message.id);
+  function queueTranscriptPersistence(mutation: TranscriptStoreMutation | undefined): void {
+    if (!mutation || !transcriptPersistence || !persistenceSessionKey) return;
+    pendingPersistedMessages.set(mutation.message.id, {
+      order: mutation.index,
+      message: sanitizeTranscriptMessage(mutation.message),
+    });
     if (persistenceTimer !== null) return;
     persistenceTimer = setTimeout(() => {
       void flushTranscriptPersistence();
@@ -325,7 +322,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     if (!persistence || !sessionKey) return;
     if (persistenceTimer !== null) clearTimeout(persistenceTimer);
     persistenceTimer = null;
-    pendingPersistedMessageIds.clear();
+    pendingPersistedMessages.clear();
     persistenceSessionKey = null;
     persistenceOperation = persistenceOperation
       .then(() => persistence.delete(sessionKey))
@@ -386,7 +383,10 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     return { locked: false };
   }
 
-  function computeState(): ChatState {
+  function computeState(
+    transcript: ChatMessageViewModel[],
+    transcriptMutation: TranscriptStoreMutation | null,
+  ): ChatState {
     const channelState = getChannelState();
     const sessionState = getSessionState();
     const sessionId = getSessionId();
@@ -415,7 +415,9 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         isConnected: channelState === 'OPEN',
         isStale: channelState === 'STALE' || channelState === 'RECONNECTING',
       },
-      transcript: transcriptStore.getSnapshot().map((message) => cloneMessage(message)),
+      transcript,
+      transcriptRevision: transcriptStore.getRevision(),
+      transcriptMutation,
       input,
       auth: { ...authState },
       escalation: cloneEscalation(escalation),
@@ -438,8 +440,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     options.onEvent?.(event);
   }
 
-  function emitStateChanged() {
-    const state = computeState();
+  function emitStateChanged(transcriptMutation: TranscriptStoreMutation | null = null) {
+    const state = computeState(transcriptStore.getView(), transcriptMutation);
     for (const listener of Array.from(listeners)) {
       listener(state);
     }
@@ -631,7 +633,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
     }
 
     const result = transcriptStore.ingest(message);
-    queueTranscriptPersistence(result.mutation?.message);
+    queueTranscriptPersistence(result.mutation);
     if (result.mutation) {
       emit({
         type: result.mutation.type,
@@ -706,7 +708,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       );
     }
 
-    emitStateChanged();
+    emitStateChanged(result.mutation ?? null);
   }
 
   async function runAction(action: () => Promise<void>) {
@@ -722,7 +724,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
 
   return {
     getState() {
-      return computeState();
+      return computeState(transcriptStore.getSnapshot(), null);
     },
 
     subscribe(listener) {
@@ -787,8 +789,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
       };
 
       const optimisticResult = transcriptStore.upsertLocalMessage(optimistic);
-      queueTranscriptPersistence(optimisticResult.mutation?.message);
-      emitStateChanged();
+      queueTranscriptPersistence(optimisticResult.mutation);
+      emitStateChanged(optimisticResult.mutation ?? null);
 
       try {
       debug.log('[sdk-ui] sendMessage -> client.sendMessage start', summarizeSendPayload(sendPayload));
@@ -803,13 +805,13 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           retryable: false,
           sendError: undefined,
         });
-        queueTranscriptPersistence(sentResult.mutation?.message);
+        queueTranscriptPersistence(sentResult.mutation);
         awaitingAnswer = true;
         debug.log('[sdk-ui] sendMessage -> client.sendMessage done', {
           clientMsgId,
           ok: true,
         });
-        emitStateChanged();
+        emitStateChanged(sentResult.mutation ?? null);
         return { ok: true, messageId: id, clientMsgId };
       } catch (err) {
         awaitingAnswer = false;
@@ -819,17 +821,18 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         });
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
         const failedResult = transcriptStore.upsertLocalMessage({ ...optimistic, deliveryStatus: 'failed', retryable: true, sendError });
-        queueTranscriptPersistence(failedResult.mutation?.message);
-        emitStateChanged();
+        queueTranscriptPersistence(failedResult.mutation);
+        emitStateChanged(failedResult.mutation ?? null);
         return { ok: false, messageId: id, clientMsgId, error: sendError };
       }
     },
 
     async retryMessage(messageId: string): Promise<SendMessageResult | null> {
-      const snapshot = transcriptStore.getSnapshot();
-      const msg = snapshot.find(
-        (m) => m.id === messageId && m.role === 'user' && m.retryable === true && m.originalPayload !== undefined,
-      );
+      const entry = transcriptStore.getEntry(messageId);
+      const msg = entry?.message && entry.message.role === 'user'
+        && entry.message.retryable === true && entry.message.originalPayload !== undefined
+        ? cloneMessage(entry.message)
+        : null;
       if (!msg?.originalPayload || !msg.clientMsgId) return null;
 
       const clientMsgId = msg.clientMsgId;
@@ -840,8 +843,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         sendError: undefined,
       };
       const retryingResult = transcriptStore.upsertLocalMessage(updated);
-      queueTranscriptPersistence(retryingResult.mutation?.message);
-      emitStateChanged();
+      queueTranscriptPersistence(retryingResult.mutation);
+      emitStateChanged(retryingResult.mutation ?? null);
 
       try {
         debug.log('[sdk-ui] retryMessage -> client.sendMessage start', summarizeSendPayload(msg.originalPayload));
@@ -856,13 +859,13 @@ export function createChatController(options: ChatControllerOptions): ChatContro
           retryable: false,
           sendError: undefined,
         });
-        queueTranscriptPersistence(sentResult.mutation?.message);
+        queueTranscriptPersistence(sentResult.mutation);
         awaitingAnswer = true;
         debug.log('[sdk-ui] retryMessage -> client.sendMessage done', {
           clientMsgId,
           ok: true,
         });
-        emitStateChanged();
+        emitStateChanged(sentResult.mutation ?? null);
         return { ok: true, messageId, clientMsgId };
       } catch (err) {
         awaitingAnswer = false;
@@ -872,8 +875,8 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         });
         const sendError = err instanceof Error ? err.message : 'Message was not sent';
         const failedResult = transcriptStore.upsertLocalMessage({ ...updated, deliveryStatus: 'failed', retryable: true, sendError });
-        queueTranscriptPersistence(failedResult.mutation?.message);
-        emitStateChanged();
+        queueTranscriptPersistence(failedResult.mutation);
+        emitStateChanged(failedResult.mutation ?? null);
         return { ok: false, messageId, clientMsgId, error: sendError };
       }
     },

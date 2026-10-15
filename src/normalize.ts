@@ -12,6 +12,7 @@ import {
   isRecord,
   mapRole,
   toEscalationActions,
+  turnRef,
 } from './utils.js';
 import { projectTransportAttachments } from './attachments.js';
 
@@ -159,6 +160,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
           ...mergedMeta,
           ...buildAttachmentMeta(message),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
+          ...(turnRef(payload) ? { turnRef: turnRef(payload) } : {}),
         },
       };
 
@@ -176,6 +178,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
           ...mergedMeta,
           ...buildAttachmentMeta(message),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
+          ...(turnRef(payload) ? { turnRef: turnRef(payload) } : {}),
           ...(asNonEmptyString(payload['answer_kind']) ? { answerKind: asNonEmptyString(payload['answer_kind']) } : {}),
         },
       };

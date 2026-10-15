@@ -1,5 +1,5 @@
 import type { ChatAttachment, ChatMessageViewModel, CortexTransportMessage } from './types.js';
-import { asNonEmptyString, asPayload, isRecord } from './utils.js';
+import { asNonEmptyString, asPayload, isRecord, turnRef } from './utils.js';
 
 // Public session-file descriptor contract: @cortex-suite/sdk
 // contracts/session_file_attachments_v1.json (SDK #2).
@@ -8,6 +8,8 @@ const OWNER_ROLES = new Set(['user', 'assistant', 'operator', 'system']);
 const DIRECTIONS = new Set(['inbound', 'outbound', 'internal']);
 const STATES = new Set(['available', 'expired', 'deleted', 'quarantined']);
 const MESSAGE_REF_KINDS = new Set(['client_msg_id', 'turn']);
+// EA public attachment ceiling per message (SDK MAX_ATTACHMENTS_PER_MESSAGE).
+const MAX_ATTACHMENTS_PER_MESSAGE = 8;
 // An identity field must never carry an internal File Layer identity.
 const INTERNAL_VALUE_PREFIXES = ['fi_', 'sn_'];
 
@@ -83,13 +85,15 @@ function parsePendingAttachment(value: unknown): ChatAttachment | null {
   return attachment;
 }
 
-function belongsTo(attachment: ChatAttachment, binding: AttachmentBinding): boolean {
-  if (attachment.owner_role === undefined) return false;
-  if (attachment.owner_role !== binding.ownerRole || attachment.direction !== binding.direction) return false;
-  if (attachment.message_ref_kind !== undefined && attachment.message_ref_kind !== binding.messageRefKind) return false;
-  return binding.messageRef === null
-    || attachment.message_ref === undefined
-    || attachment.message_ref === binding.messageRef;
+// Exact ownership: both binding fields present and equal to the message's
+// trusted identity. A message without a trusted identity owns no files.
+function belongsTo(attachment: ChatAttachment, binding: AttachmentBinding | null): boolean {
+  return binding !== null
+    && binding.messageRef !== null
+    && attachment.owner_role === binding.ownerRole
+    && attachment.direction === binding.direction
+    && attachment.message_ref_kind === binding.messageRefKind
+    && attachment.message_ref === binding.messageRef;
 }
 
 function project(
@@ -101,6 +105,7 @@ function project(
   const seen = new Set<string>();
   const result: ChatAttachment[] = [];
   for (const item of raw) {
+    if (result.length >= MAX_ATTACHMENTS_PER_MESSAGE) break;
     const attachment = parse(item);
     if (!attachment || seen.has(attachment.file_ref) || !accept(attachment)) continue;
     seen.add(attachment.file_ref);
@@ -109,17 +114,10 @@ function project(
   return result;
 }
 
-function turnIdentity(payload: Record<string, unknown>): string | null {
-  const turnId = asNonEmptyString(payload['turn_id']);
-  if (turnId) return turnId;
-  const turn = payload['turn'];
-  return typeof turn === 'number' && Number.isSafeInteger(turn) && turn >= 0 ? String(turn) : null;
-}
-
 function transportBinding(message: CortexTransportMessage): AttachmentBinding | null {
   const payload = asPayload(message);
   if (message.type === 'chat::answer' || message.type === 'chat::partial') {
-    return { ownerRole: 'assistant', direction: 'outbound', messageRefKind: 'turn', messageRef: turnIdentity(payload) };
+    return { ownerRole: 'assistant', direction: 'outbound', messageRefKind: 'turn', messageRef: turnRef(payload) };
   }
   if (message.type === 'chat::echo' || message.type === 'chat::message') {
     const meta = isRecord(payload['meta']) ? payload['meta'] : {};
@@ -133,21 +131,23 @@ function transportBinding(message: CortexTransportMessage): AttachmentBinding | 
 
 /**
  * Public attachments a transport message owns, from the canonical
- * `payload.meta.attachments` only, in server order. An answer keeps only
- * assistant/outbound files of its own turn; a user message only user/inbound
- * files of its own client_msg_id. Anything else is excluded.
+ * `payload.meta.attachments` only, in server order, at most 8. An answer keeps
+ * only assistant/outbound files bound to String(turn); a user message only
+ * user/inbound files bound to its client_msg_id. Both binding fields must be
+ * present and match exactly; an answer without turn, a user message without
+ * client_msg_id and every other message type own no files.
  */
 export function projectTransportAttachments(message: CortexTransportMessage): ChatAttachment[] {
   const payload = asPayload(message);
   const meta = isRecord(payload['meta']) ? payload['meta'] : {};
   const binding = transportBinding(message);
-  return project(meta['attachments'], parsePublicAttachment, (attachment) => !binding || belongsTo(attachment, binding));
+  return project(meta['attachments'], parsePublicAttachment, (attachment) => belongsTo(attachment, binding));
 }
 
 function viewBinding(message: ChatMessageViewModel): AttachmentBinding | null {
   const meta = message.meta ?? {};
   if (message.type === 'chat::answer' || message.type === 'chat::partial') {
-    return { ownerRole: 'assistant', direction: 'outbound', messageRefKind: 'turn', messageRef: asNonEmptyString(meta['turnId']) };
+    return { ownerRole: 'assistant', direction: 'outbound', messageRefKind: 'turn', messageRef: asNonEmptyString(meta['turnRef']) };
   }
   if (message.type === 'chat::echo' || message.type === 'chat::message') {
     return {
@@ -160,9 +160,9 @@ function viewBinding(message: ChatMessageViewModel): AttachmentBinding | null {
 
 /**
  * Re-project `meta.attachments` of a view model (local, persisted or restored).
- * A local user message may hold pending refs that the server has not
- * confirmed yet; every other message holds only confirmed descriptors that
- * belong to it.
+ * A local user message may hold pending refs (no owner_role) that the server
+ * has not confirmed yet; every confirmed descriptor must be bound exactly to
+ * the message (answers by meta.turnRef, user messages by client_msg_id).
  */
 export function projectViewAttachments(message: ChatMessageViewModel): ChatMessageViewModel {
   const meta = message.meta;
@@ -173,7 +173,6 @@ export function projectViewAttachments(message: ChatMessageViewModel): ChatMessa
     meta['attachments'],
     pendingAllowed ? parsePendingAttachment : parsePublicAttachment,
     (attachment) => (pendingAllowed && attachment.owner_role === undefined)
-      || !binding
       || belongsTo(attachment, binding),
   );
   const nextMeta = { ...meta };

@@ -14,6 +14,7 @@ import {
   asPayload,
   cloneMessage,
   isRecord,
+  turnRef,
 } from './utils.js';
 
 function isUserSafeSystemError(message: CortexTransportMessage): boolean {
@@ -283,7 +284,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       const payload = asPayload(message);
 
-      if (message.type === 'chat::partial' && !asNonEmptyString(payload['turn_id'])) {
+      if (message.type === 'chat::partial' && !asNonEmptyString(payload['turn_id']) && turnRef(payload) === null) {
         return buildMalformedPartialMessage(message);
       }
 

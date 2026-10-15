@@ -93,10 +93,14 @@ Every message keeps its files, in order, in `message.meta.attachments` as `ChatA
 `@cortex-suite/sdk` public session-file descriptor: `file_ref`, `filename`, `content_type`, `size`,
 `owner_role`, `direction`, `state`, `message_ref`, `message_ref_kind`).
 
-- User uploads sit on the user message (`owner_role: "user"`, `direction: "inbound"`, `message_ref` = its
-  `client_msg_id`); files generated for an answer sit on that assistant message (`owner_role: "assistant"`,
-  `direction: "outbound"`, `message_ref` = its turn). A file of another owner, direction or message is never
-  attached, so a user upload repeated inside an answer does not become an assistant file.
+- User uploads sit on the user message (`owner_role: "user"`, `direction: "inbound"`,
+  `message_ref_kind: "client_msg_id"`, `message_ref` = its `client_msg_id`); files generated for an answer sit on
+  that assistant message (`owner_role: "assistant"`, `direction: "outbound"`, `message_ref_kind: "turn"`,
+  `message_ref` = `String(payload.turn)`). Both binding fields must be present and match exactly. A file of
+  another owner, direction or message, an answer without `turn` (for example an operator close), a user message
+  without `client_msg_id` and any other message type carry no files, so a user upload repeated inside an answer
+  never becomes an assistant file. At most 8 files per message.
+- Runtime answers and partials are identified by their integer `turn` (`id: "turn:<turn>"`, `meta.turnRef`).
 - Only canonical `payload.meta.attachments` is read. Internal identities, scope, storage keys, tickets and URLs
   (including `download_mint_url`) are removed before a message is stored, rendered or persisted, and again when a
   persisted transcript is restored.

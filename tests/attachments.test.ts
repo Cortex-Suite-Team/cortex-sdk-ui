@@ -2,7 +2,7 @@
  * EA multi-file view-model contract (SDK UI #2).
  *
  * fixtures/session_file_attachments_v1.json is a verbatim copy of
- * Cortex-Suite-Team/cortex-sdk@14a27fe contracts/session_file_attachments_v1.json
+ * Cortex-Suite-Team/cortex-sdk@025c924 contracts/session_file_attachments_v1.json
  * (SDK #2). Source-level qualification only; the physical SessionManager /
  * File Link 3 -> 2 proof waits for Runtime #24.
  */
@@ -30,13 +30,13 @@ const fixture = JSON.parse(
   readFileSync(new URL('./fixtures/session_file_attachments_v1.json', import.meta.url), 'utf8'),
 ) as {
   client_msg_id: string;
-  turn_id: string;
+  turn: number;
+  turn_ref: string;
   inputs: FixtureFile[];
   outputs: FixtureFile[];
   messages: { chat_echo: Record<string, unknown>; chat_answer: Record<string, unknown> };
   hostile_descriptors: Array<{ name: string; input: unknown; expected: ChatAttachment | null }>;
-  answer_projection_cases: Array<{ name: string; attachments: unknown; expected_refs: string[] }>;
-  echo_projection_cases: Array<{ name: string; attachments: unknown; expected_refs: string[] }>;
+  message_projection_cases: Array<{ name: string; type: string; payload: Record<string, unknown>; expected_refs: string[] }>;
 };
 
 const INPUTS = fixture.inputs.map((file) => file.descriptor as ChatAttachment);
@@ -49,6 +49,10 @@ function answer(attachments: unknown, seq = 20, extra: Record<string, unknown> =
 
 function echo(attachments: unknown, seq = 10, clientMsgId = fixture.client_msg_id): CortexTransportMessage {
   return createMessage('chat::echo', { ...fixture.messages.chat_echo, meta: { client_msg_id: clientMsgId, attachments } }, seq);
+}
+
+function clone<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function attachmentsOf(message: ChatMessageViewModel | undefined): unknown {
@@ -89,21 +93,31 @@ describe('attachment projection (shared SDK #2 vectors)', () => {
     expect(normalized.meta?.['attachments']).toEqual(vector.expected ? [vector.expected] : undefined);
   });
 
-  it.each(fixture.answer_projection_cases.map((v) => [v.name, v] as const))('answer: %s', (_name, vector) => {
-    const refs = ((normalizeCortexMessage(answer(vector.attachments)).meta?.['attachments'] ?? []) as ChatAttachment[]).map((a) => a.file_ref);
-    expect(refs).toEqual(vector.expected_refs);
+  it.each(fixture.message_projection_cases.map((v) => [v.name, v] as const))('message: %s', (_name, vector) => {
+    const refsOf = (message: ChatMessageViewModel | undefined) => ((attachmentsOf(message) ?? []) as ChatAttachment[]).map((a) => a.file_ref);
+    const normalized = normalizeCortexMessage(createMessage(vector.type, clone(vector.payload)));
+    expect(refsOf(normalized)).toEqual(vector.expected_refs);
+
+    // Same result once stored, persisted and restored.
+    const store = createTranscriptStore();
+    store.ingest(createMessage(vector.type, clone(vector.payload)));
+    const stored = store.getSnapshot().at(-1);
+    expect(refsOf(stored)).toEqual(vector.expected_refs);
+    if (stored) {
+      const restored = createTranscriptStore({ initialTranscript: [JSON.parse(JSON.stringify(sanitizeTranscriptMessage(stored)))] });
+      expect(refsOf(restored.getSnapshot()[0])).toEqual(vector.expected_refs);
+    }
   });
 
-  it.each(fixture.echo_projection_cases.map((v) => [v.name, v] as const))('echo: %s', (_name, vector) => {
-    const refs = ((normalizeCortexMessage(echo(vector.attachments)).meta?.['attachments'] ?? []) as ChatAttachment[]).map((a) => a.file_ref);
-    expect(refs).toEqual(vector.expected_refs);
-  });
-
-  it('binds an answer by numeric turn when turn_id is absent', () => {
-    const outputs = OUTPUTS.map((d) => ({ ...d, message_ref: '7' }));
-    const base = { content: ['x'], role: 'assistant', answer_kind: 'final', turn: 7, meta: { attachments: outputs } };
-    expect(normalizeCortexMessage(createMessage('chat::answer', base)).meta?.['attachments']).toEqual(outputs);
-    expect(normalizeCortexMessage(createMessage('chat::answer', { ...base, turn: 8 })).meta?.['attachments']).toBeUndefined();
+  it('identifies Runtime answers and partials by their integer turn', () => {
+    const store = createTranscriptStore();
+    store.ingest(createMessage('chat::partial', { content: ['Here'], role: 'assistant', turn: fixture.turn }, 19));
+    store.ingest(answer(OUTPUTS, 20));
+    const transcript = store.getSnapshot();
+    expect(transcript.map((m) => m.id)).toEqual([`turn:${fixture.turn_ref}`]);
+    expect(transcript[0]?.meta?.['turnRef']).toBe(fixture.turn_ref);
+    expect(transcript[0]?.status).toBe('final');
+    expect(attachmentsOf(transcript[0])).toEqual(OUTPUTS);
   });
 
   it('never takes attachments from legacy payload.attachments or envelope meta', () => {
@@ -154,7 +168,7 @@ describe('repeated delivery, resync and late answers', () => {
     store.ingest(echo(INPUTS, 10));
     store.ingest(echo(INPUTS, 10));
     store.ingest(echo([...INPUTS].reverse(), 11));
-    store.ingest(createMessage('chat::partial', { content: 'Here', role: 'assistant', turn_id: fixture.turn_id }, 19));
+    store.ingest(createMessage('chat::partial', { content: ['Here'], role: 'assistant', turn: fixture.turn }, 19));
     store.ingest(answer(OUTPUTS, 20));
     store.ingest(answer(OUTPUTS, 20));
     store.ingest(answer([OUTPUTS[1], OUTPUTS[0]], 21));
@@ -250,7 +264,7 @@ describe('ChatController lifecycle: send -> echo -> answer -> persist -> restore
     reloadedClient.emit(answer(OUTPUTS, 20));
 
     transcript = reloaded.getState().transcript;
-    expect(transcript.map((m) => m.id)).toEqual([sent.messageId, `turn:${fixture.turn_id}`]);
+    expect(transcript.map((m) => m.id)).toEqual([sent.messageId, `turn:${fixture.turn_ref}`]);
     expect(transcript[0]?.clientMsgId).toBe(clientMsgId);
     expect(attachmentsOf(transcript[0])).toEqual(bound);
     expect(attachmentsOf(transcript[1])).toEqual(OUTPUTS);
@@ -275,42 +289,71 @@ describe('ChatController lifecycle: send -> echo -> answer -> persist -> restore
     expect(attachmentsOf(controller.getState().transcript[0])).toEqual(refs.map((file_ref) => ({ file_ref })));
   });
 
-  it('re-projects attachments of restored transcripts written by older builds', async () => {
+  async function restore(messages: ChatMessageViewModel[]) {
     const persistence = new MemoryPersistence();
     const now = Date.now();
     persistence.records.set('session:sess_test', {
-      version: TRANSCRIPT_SCHEMA_VERSION,
-      sessionKey: 'session:sess_test',
-      updatedAt: now,
-      expiresAt: now + 60_000,
-      messages: [{
-        id: `turn:${fixture.turn_id}`,
-        type: 'chat::answer',
-        role: 'assistant',
-        content: 'old',
-        status: 'final',
-        meta: {
-          turnId: fixture.turn_id,
-          attachments: [
-            { ...OUTPUTS[0], file_id: 'fi_old', download_mint_url: '/sessions/s/files/sf/download-token' },
-            INPUTS[0],
-            { file_ref: 'mock_file_1_report.xlsx' },
-            OUTPUTS[1],
-          ],
-        },
-      }],
+      version: TRANSCRIPT_SCHEMA_VERSION, sessionKey: 'session:sess_test', updatedAt: now, expiresAt: now + 60_000, messages,
     });
-    const client = createMockClient();
-    const controller = createChatController({ client, transcriptPersistence: persistence });
+    const controller = createChatController({ client: createMockClient(), transcriptPersistence: persistence });
     await controller.connect();
-    expect(attachmentsOf(controller.getState().transcript[0])).toEqual(OUTPUTS);
-    expect(JSON.stringify(controller.getState().transcript)).not.toMatch(FORBIDDEN);
+    return controller.getState().transcript;
+  }
+
+  function storedAnswer(meta: Record<string, unknown>): ChatMessageViewModel {
+    return { id: `turn:${fixture.turn_ref}`, type: 'chat::answer', role: 'assistant', content: ['old'], status: 'final', meta };
+  }
+
+  it('re-projects restored attachments: hostile fields, inherited, unbound and cross-turn entries are dropped', async () => {
+    const transcript = await restore([storedAnswer({
+      turnRef: fixture.turn_ref,
+      attachments: [
+        { ...OUTPUTS[0], file_id: 'fi_old', download_mint_url: '/sessions/s/files/sf/download-token' },
+        INPUTS[0],
+        { file_ref: 'mock_file_1_report.xlsx' },
+        { ...OUTPUTS[0], file_ref: 'sf_unbound', message_ref: undefined },
+        { ...OUTPUTS[0], file_ref: 'sf_kindless', message_ref_kind: undefined },
+        { ...OUTPUTS[0], file_ref: 'sf_cross_turn', message_ref: '8' },
+        OUTPUTS[1],
+      ],
+    })]);
+    expect(attachmentsOf(transcript[0])).toEqual(OUTPUTS);
+    expect(JSON.stringify(transcript)).not.toMatch(FORBIDDEN);
+  });
+
+  it('a restored answer without a trusted turn keeps no files (records from older builds)', async () => {
+    const legacy = await restore([storedAnswer({ turnId: 'turn_ea_0007', attachments: OUTPUTS })]);
+    expect(attachmentsOf(legacy[0])).toBeUndefined();
+    const forged = await restore([storedAnswer({ turnRef: '8', attachments: OUTPUTS })]);
+    expect(attachmentsOf(forged[0])).toBeUndefined();
+  });
+
+  it('restores pending local uploads but no confirmed file of another message', async () => {
+    const transcript = await restore([{
+      id: 'client:cli_pending', type: 'chat::message', role: 'user', content: 'x', status: 'final',
+      deliveryStatus: 'sent', clientMsgId: 'cli_pending',
+      meta: {
+        client_msg_id: 'cli_pending',
+        persisted_outgoing: true,
+        attachments: [
+          { file_ref: 'sf_pending', filename: 'draft.csv' },
+          { ...INPUTS[0], message_ref: 'cli_pending' },
+          { ...INPUTS[1], message_ref: 'cli_other' },
+          { ...INPUTS[2], message_ref_kind: undefined, message_ref: 'cli_pending' },
+          'fi_0123456789abcdef',
+        ],
+      },
+    }]);
+    expect(attachmentsOf(transcript[0])).toEqual([
+      { file_ref: 'sf_pending', filename: 'draft.csv' },
+      { ...INPUTS[0], message_ref: 'cli_pending' },
+    ]);
   });
 
   it('sanitizeTranscriptMessage applies the same projection', () => {
     const safe = sanitizeTranscriptMessage({
-      id: 'turn:x', type: 'chat::answer', role: 'assistant', content: 'x', status: 'final',
-      meta: { turnId: fixture.turn_id, attachments: [{ ...OUTPUTS[0], snapshot_id: 'sn_1', upload_path: '/u' }, INPUTS[1]] },
+      id: 'turn:x', type: 'chat::answer', role: 'assistant', content: ['x'], status: 'final',
+      meta: { turnRef: fixture.turn_ref, attachments: [{ ...OUTPUTS[0], snapshot_id: 'sn_1', upload_path: '/u' }, INPUTS[1]] },
     });
     expect(safe.meta?.['attachments']).toEqual([OUTPUTS[0]]);
   });

@@ -39,9 +39,15 @@ export function asStringArray(value: unknown): string[] {
     .filter((entry) => entry !== '');
 }
 
+/** Runtime serializes the turn as a non-negative integer; its reference is String(turn). */
+export function turnRef(payload: Record<string, unknown>): string | null {
+  const turn = payload['turn'];
+  return typeof turn === 'number' && Number.isSafeInteger(turn) && turn >= 0 ? String(turn) : null;
+}
+
 export function buildMessageId(message: CortexTransportMessage, fallbackPrefix?: string): string {
   const payload = asPayload(message);
-  const turnId = asNonEmptyString(payload['turn_id']);
+  const turnId = asNonEmptyString(payload['turn_id']) ?? turnRef(payload);
   if (turnId && (message.type === 'chat::partial' || message.type === 'chat::answer')) {
     return `turn:${turnId}`;
   }

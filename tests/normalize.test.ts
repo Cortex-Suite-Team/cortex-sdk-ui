@@ -153,10 +153,10 @@ describe('normalizeCortexMessage', () => {
 
   it('projects chat::answer meta.attachments to public fields only (R9)', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::answer', {
-      content: 'Here is your file.',
+      content: ['Here is your file.'],
       role: 'assistant',
       answer_kind: 'final',
-      turn_id: 'turn_1',
+      turn: 1,
       meta: {
         attachments: [{
           file_ref: 'sf_1',
@@ -168,7 +168,7 @@ describe('normalizeCortexMessage', () => {
           owner_role: 'assistant',
           direction: 'outbound',
           state: 'available',
-          message_ref: 'turn_1',
+          message_ref: '1',
           message_ref_kind: 'turn',
           download_mint_url: '/sessions/sess_1/files/sf_1/download-token',
         }],
@@ -177,7 +177,8 @@ describe('normalizeCortexMessage', () => {
       attachments: [{ file_ref: 'sf_legacy', filename: 'legacy.pdf' }],
     }));
 
-    expect(normalized.meta).toMatchObject({ turnId: 'turn_1', answerKind: 'final' });
+    expect(normalized.id).toBe('turn:1');
+    expect(normalized.meta).toMatchObject({ turnRef: '1', answerKind: 'final' });
     expect(normalized.meta?.attachments).toEqual([{
       file_ref: 'sf_1',
       filename: 'report.pdf',
@@ -186,7 +187,7 @@ describe('normalizeCortexMessage', () => {
       owner_role: 'assistant',
       direction: 'outbound',
       state: 'available',
-      message_ref: 'turn_1',
+      message_ref: '1',
       message_ref_kind: 'turn',
     }]);
   });

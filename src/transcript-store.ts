@@ -30,6 +30,32 @@ function shouldStoreInTranscript(message: CortexTransportMessage): boolean {
   return !message.type.startsWith('system::');
 }
 
+// Text of a streamed chunk: Runtime sends list[str] blocks, legacy producers a string.
+function streamedText(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content) && content.every((block) => typeof block === 'string')) return content.join('');
+  return null;
+}
+
+// Streaming content accumulates in arrival order. Runtime list chunks keep the
+// list shape as one accumulated block; two legacy strings stay a string.
+function accumulatePartialContent(existing: unknown, incoming: unknown): unknown {
+  if (typeof existing === 'string' && typeof incoming === 'string') return `${existing}${incoming}`;
+  const previous = streamedText(existing);
+  const next = streamedText(incoming);
+  if (previous === null || next === null) return incoming;
+  return [`${previous}${next}`];
+}
+
+function firstPartialContent(content: unknown): unknown {
+  return Array.isArray(content) ? accumulatePartialContent([], content) : content;
+}
+
+// A replayed delivery (resync, reconnect) repeats a session seq already applied.
+function isReplayedDelivery(existing: ChatMessageViewModel, incoming: ChatMessageViewModel): boolean {
+  return typeof existing.seq === 'number' && typeof incoming.seq === 'number' && incoming.seq <= existing.seq;
+}
+
 export function createTranscriptStore(options: TranscriptStoreOptions = {}): TranscriptStore {
   function freezeOwnedValue<T>(value: T, seen = new WeakSet<object>()): T {
     if (value === null || typeof value !== 'object' || seen.has(value)) return value;
@@ -317,6 +343,10 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
 
       if (message.type === 'chat::partial' && existingIndex !== undefined) {
         const existing = transcript[existingIndex];
+        // The final answer is authoritative; a chunk already applied is not appended twice.
+        if (existing.status === 'final' || isReplayedDelivery(existing, normalized)) {
+          return {};
+        }
         const nextMessage: ChatMessageViewModel = {
           ...existing,
           seq: normalized.seq,
@@ -324,12 +354,14 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
           role: normalized.role,
           status: 'streaming',
           ts: normalized.ts,
-          content: typeof existing.content === 'string' && typeof normalized.content === 'string'
-            ? `${existing.content}${normalized.content}`
-            : normalized.content,
+          content: accumulatePartialContent(existing.content, normalized.content),
           meta: mergeMessageMeta(existing.meta, normalized.meta),
         };
         return updateMessage(existingIndex, nextMessage);
+      }
+
+      if (message.type === 'chat::partial') {
+        return addMessage({ ...normalized, content: firstPartialContent(normalized.content) });
       }
 
       if (message.type === 'chat::answer' && existingIndex !== undefined) {

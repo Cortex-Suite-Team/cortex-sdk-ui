@@ -116,9 +116,11 @@ function project(
 
 function transportBinding(message: CortexTransportMessage): AttachmentBinding | null {
   const payload = asPayload(message);
-  if (message.type === 'chat::answer' || message.type === 'chat::partial') {
+  if (message.type === 'chat::answer') {
     return { ownerRole: 'assistant', direction: 'outbound', messageRefKind: 'turn', messageRef: turnRef(payload) };
   }
+  // Runtime also echoes operator escalation replies; only a user echo owns user files.
+  if (message.type === 'chat::echo' && payload['role'] !== 'user') return null;
   if (message.type === 'chat::echo' || message.type === 'chat::message') {
     const meta = isRecord(payload['meta']) ? payload['meta'] : {};
     return {
@@ -132,10 +134,11 @@ function transportBinding(message: CortexTransportMessage): AttachmentBinding | 
 /**
  * Public attachments a transport message owns, from the canonical
  * `payload.meta.attachments` only, in server order, at most 8. An answer keeps
- * only assistant/outbound files bound to String(turn); a user message only
- * user/inbound files bound to its client_msg_id. Both binding fields must be
- * present and match exactly; an answer without turn, a user message without
- * client_msg_id and every other message type own no files.
+ * only assistant/outbound files bound to String(turn); a user message or user
+ * echo only user/inbound files bound to its client_msg_id. Both binding fields
+ * must be present and match exactly; an answer without turn, a user message
+ * without client_msg_id, a partial (Runtime partials carry no meta), an
+ * operator echo and every other message type own no files.
  */
 export function projectTransportAttachments(message: CortexTransportMessage): ChatAttachment[] {
   const payload = asPayload(message);
@@ -146,9 +149,10 @@ export function projectTransportAttachments(message: CortexTransportMessage): Ch
 
 function viewBinding(message: ChatMessageViewModel): AttachmentBinding | null {
   const meta = message.meta ?? {};
-  if (message.type === 'chat::answer' || message.type === 'chat::partial') {
+  if (message.type === 'chat::answer') {
     return { ownerRole: 'assistant', direction: 'outbound', messageRefKind: 'turn', messageRef: asNonEmptyString(meta['turnRef']) };
   }
+  if (message.type === 'chat::echo' && message.role !== 'user') return null;
   if (message.type === 'chat::echo' || message.type === 'chat::message') {
     return {
       ownerRole: 'user', direction: 'inbound', messageRefKind: 'client_msg_id',

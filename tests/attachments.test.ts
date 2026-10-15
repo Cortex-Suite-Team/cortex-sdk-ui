@@ -2,7 +2,7 @@
  * EA multi-file view-model contract (SDK UI #2).
  *
  * fixtures/session_file_attachments_v1.json is a verbatim copy of
- * Cortex-Suite-Team/cortex-sdk@025c924 contracts/session_file_attachments_v1.json
+ * Cortex-Suite-Team/cortex-sdk@77a43c2 contracts/session_file_attachments_v1.json
  * (SDK #2). Source-level qualification only; the physical SessionManager /
  * File Link 3 -> 2 proof waits for Runtime #24.
  */

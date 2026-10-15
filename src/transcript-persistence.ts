@@ -4,6 +4,7 @@ import type {
   PersistedTranscript,
   TranscriptPersistence,
 } from './types.js';
+import { projectViewAttachments } from './attachments.js';
 import { cloneMessage, isRecord } from './utils.js';
 
 export const DEFAULT_TRANSCRIPT_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -12,7 +13,7 @@ const DATABASE_NAME = 'cortex-sdk-ui';
 const DATABASE_VERSION = 1;
 const SESSIONS_STORE = 'transcript-sessions';
 const MESSAGES_STORE = 'transcript-messages';
-const SENSITIVE_KEY = /^(?:access_token|refresh_token|token|api_key|authorization|credentials?|password|secret|private.*file|file.*private|file_id|storage_id|file_layer_id)$/;
+const SENSITIVE_KEY = /^(?:access_token|refresh_token|token|api_key|authorization|credentials?|password|secret|private.*file|file.*private|file_id|snapshot_id|storage_id|storage_key|file_layer_id|blob_ref|delivery_ticket|upload_ticket|file_link_secret|download_mint_url)$/;
 
 interface StoredSession {
   sessionKey: string;
@@ -40,7 +41,7 @@ function sanitizeValue(value: unknown): unknown {
 }
 
 export function sanitizeTranscriptMessage(message: ChatMessageViewModel): ChatMessageViewModel {
-  const safe = sanitizeValue(cloneMessage(message)) as ChatMessageViewModel;
+  const safe = sanitizeValue(projectViewAttachments(cloneMessage(message))) as ChatMessageViewModel;
   if (message.originalPayload && message.id.startsWith('client:')) {
     safe.meta = { ...(safe.meta ?? {}), persisted_outgoing: true };
   }

@@ -129,6 +129,26 @@ export interface ChatActor {
   avatarUrl?: string | null;
 }
 
+/**
+ * Public session-file attachment in `ChatMessageViewModel.meta.attachments`
+ * (same shape as @cortex-suite/sdk session-file descriptors). Server-confirmed
+ * entries carry every field except the optional message reference; an entry
+ * without `owner_role` is a not-yet-confirmed upload of a locally sent user
+ * message. Download through the SDK with `downloadFile(file_ref)`.
+ */
+export interface ChatAttachment {
+  file_ref: string;
+  filename?: string;
+  content_type?: string;
+  size?: number;
+  owner_role?: 'user' | 'assistant' | 'operator' | 'system';
+  direction?: 'inbound' | 'outbound' | 'internal';
+  state?: 'available' | 'expired' | 'deleted' | 'quarantined';
+  /** The owning message: its client_msg_id (user) or turn id (assistant). */
+  message_ref?: string;
+  message_ref_kind?: 'client_msg_id' | 'turn';
+}
+
 export interface ChatMessageViewModel {
   id: string;
   seq?: number | null;

@@ -87,6 +87,27 @@ const unsubscribe = chat.subscribe((state) => {
 });
 ```
 
+## File Attachments
+
+Every message keeps its files, in order, in `message.meta.attachments` as `ChatAttachment` objects (the
+`@cortex-suite/sdk` public session-file descriptor: `file_ref`, `filename`, `content_type`, `size`,
+`owner_role`, `direction`, `state`, `message_ref`, `message_ref_kind`).
+
+- User uploads sit on the user message (`owner_role: "user"`, `direction: "inbound"`, `message_ref` = its
+  `client_msg_id`); files generated for an answer sit on that assistant message (`owner_role: "assistant"`,
+  `direction: "outbound"`, `message_ref` = its turn). A file of another owner, direction or message is never
+  attached, so a user upload repeated inside an answer does not become an assistant file.
+- Only canonical `payload.meta.attachments` is read. Internal identities, scope, storage keys, tickets and URLs
+  (including `download_mint_url`) are removed before a message is stored, rendered or persisted, and again when a
+  persisted transcript is restored.
+- Replayed echoes and answers (resync, reload) keep each `file_ref` once in its first position; a re-delivered file
+  takes the newer descriptor (for example `state: "expired"`), and a delivery without attachments never removes
+  accepted ones.
+- Right after `sendMessage({ attachments })` the optimistic user message holds only `{ file_ref }` entries (plus any
+  `filename` / `content_type` / `size` you passed); the echo replaces them with full descriptors.
+
+SDK UI does not transfer bytes. Download a file through the SDK with `client.downloadFile(attachment.file_ref)`.
+
 ## Interactive Questions
 
 Canonical runtime questions arrive as `chat::question` with `payload.meta.questions`.

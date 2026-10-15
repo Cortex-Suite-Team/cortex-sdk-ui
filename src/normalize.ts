@@ -13,26 +13,21 @@ import {
   mapRole,
   toEscalationActions,
 } from './utils.js';
+import { projectTransportAttachments } from './attachments.js';
 
-// Internal blob handles that must never reach a rendered/historical surface (R9). Only the live
+// Internal file handles that must never reach a rendered/historical surface (R9). Only the live
 // runtime-bound inbox payload may carry these; defense in depth in case one leaks to the client.
-const INTERNAL_ATTACHMENT_KEYS = ['file_id', 'blob_ref', 'storage_key'];
+const INTERNAL_FILE_KEYS = [
+  'file_id', 'snapshot_id', 'blob_ref', 'storage_key', 'delivery_ticket', 'upload_ticket',
+  'file_link_secret', 'download_mint_url',
+];
 
-function stripInternalAttachmentFields(attachments: unknown[]): unknown[] {
-  return attachments.map((att) => {
-    if (!isRecord(att)) return att;
-    const cleaned = { ...att };
-    for (const key of INTERNAL_ATTACHMENT_KEYS) {
-      delete cleaned[key];
-    }
-    return cleaned;
-  });
-}
-
-function buildAttachmentMeta(payload: Record<string, unknown>): Record<string, unknown> {
-  return Array.isArray(payload['attachments'])
-    ? { attachments: stripInternalAttachmentFields(payload['attachments']) }
-    : {};
+// The only attachment surface of a view model: the message's own public
+// files from the canonical payload.meta.attachments (never a legacy
+// payload.attachments or envelope-level meta).
+function buildAttachmentMeta(message: CortexTransportMessage): Record<string, unknown> {
+  const attachments = projectTransportAttachments(message);
+  return attachments.length > 0 ? { attachments } : {};
 }
 
 function getClientMsgId(meta: Record<string, unknown>): string | undefined {
@@ -55,8 +50,10 @@ function resolveVisibleContent(payload: Record<string, unknown>): unknown {
 function withoutInternalRefs(meta: Record<string, unknown>): Record<string, unknown> {
   const cleaned = { ...meta };
   delete cleaned['resume_event_ref'];
-  // R9: never surface an internal blob handle at the message-meta level either.
-  for (const key of INTERNAL_ATTACHMENT_KEYS) {
+  // Attachments are rebuilt from the projection; raw entries never pass through.
+  delete cleaned['attachments'];
+  // R9: never surface an internal file handle at the message-meta level either.
+  for (const key of INTERNAL_FILE_KEYS) {
     delete cleaned[key];
   }
   return cleaned;
@@ -126,7 +123,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
-          ...buildAttachmentMeta(payload),
+          ...buildAttachmentMeta(message),
         },
       };
 
@@ -143,7 +140,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
-          ...buildAttachmentMeta(payload),
+          ...buildAttachmentMeta(message),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
         },
       };
@@ -160,7 +157,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         actor: extractActor(message, payload),
         meta: {
           ...mergedMeta,
-          ...buildAttachmentMeta(payload),
+          ...buildAttachmentMeta(message),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
         },
       };
@@ -177,7 +174,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         actor: extractActor(message, payload),
         meta: {
           ...mergedMeta,
-          ...buildAttachmentMeta(payload),
+          ...buildAttachmentMeta(message),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
           ...(asNonEmptyString(payload['answer_kind']) ? { answerKind: asNonEmptyString(payload['answer_kind']) } : {}),
         },
@@ -197,7 +194,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         clientMsgId: getClientMsgId(mergedMeta),
         meta: {
           ...mergedMeta,
-          ...buildAttachmentMeta(payload),
+          ...buildAttachmentMeta(message),
           ...(asNonEmptyString(payload['turn_id']) ? { turnId: asNonEmptyString(payload['turn_id']) } : {}),
         },
       };

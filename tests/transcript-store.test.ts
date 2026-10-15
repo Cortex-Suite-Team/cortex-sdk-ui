@@ -85,22 +85,24 @@ describe('createTranscriptStore', () => {
     expect(store.getSnapshot()).toHaveLength(1);
   });
 
-  it('preserves payload.attachments in chat::message meta', () => {
+  it('keeps chat::message files from payload.meta.attachments only', () => {
     const store = createTranscriptStore();
+    const descriptor = {
+      file_ref: 'sf_report', filename: 'report.xlsx', content_type: 'application/vnd.ms-excel', size: 3,
+      owner_role: 'user', direction: 'inbound', state: 'available',
+      message_ref: 'cli_report', message_ref_kind: 'client_msg_id',
+    };
 
     const result = store.ingest(createMessage('chat::message', {
       content: '',
       role: 'user',
+      meta: { client_msg_id: 'cli_report', attachments: [descriptor] },
       attachments: ['mock_file_1_report.xlsx'],
     }));
 
     expect(result.mutation?.type).toBe('message_added');
-    expect(result.mutation?.message.meta).toMatchObject({
-      attachments: ['mock_file_1_report.xlsx'],
-    });
-    expect(store.getSnapshot()[0]?.meta).toMatchObject({
-      attachments: ['mock_file_1_report.xlsx'],
-    });
+    expect(result.mutation?.message.meta?.attachments).toEqual([descriptor]);
+    expect(store.getSnapshot()[0]?.meta?.attachments).toEqual([descriptor]);
   });
 
   it('never stores blocked system messages in transcript', () => {

@@ -151,32 +151,44 @@ describe('normalizeCortexMessage', () => {
     expect(normalized.meta?.actor).toMatchObject({ kind: 'digital_worker', name: 'Robot Vasya' });
   });
 
-  it('preserves attachments for chat::answer but strips the internal file_id (R9)', () => {
+  it('projects chat::answer meta.attachments to public fields only (R9)', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::answer', {
       content: 'Here is your file.',
       role: 'assistant',
       answer_kind: 'final',
       turn_id: 'turn_1',
-      attachments: [{
-        file_ref: 'sf_1',
-        file_id: 'file_1',
-        filename: 'report.pdf',
-        download_mint_url: '/sessions/sess_1/files/sf_1/download-token',
-      }],
+      meta: {
+        attachments: [{
+          file_ref: 'sf_1',
+          file_id: 'fi_1',
+          snapshot_id: 'sn_1',
+          filename: 'report.pdf',
+          content_type: 'application/pdf',
+          size: 10,
+          owner_role: 'assistant',
+          direction: 'outbound',
+          state: 'available',
+          message_ref: 'turn_1',
+          message_ref_kind: 'turn',
+          download_mint_url: '/sessions/sess_1/files/sf_1/download-token',
+        }],
+      },
+      // Legacy top-level attachments are not a public surface.
+      attachments: [{ file_ref: 'sf_legacy', filename: 'legacy.pdf' }],
     }));
 
-    expect(normalized.meta).toMatchObject({
-      turnId: 'turn_1',
-      answerKind: 'final',
-      attachments: [{
-        file_ref: 'sf_1',
-        filename: 'report.pdf',
-        download_mint_url: '/sessions/sess_1/files/sf_1/download-token',
-      }],
-    });
-    // The internal blob handle must never survive normalization onto a rendered/historical surface.
-    const attachments = normalized.meta?.attachments as Array<Record<string, unknown>>;
-    expect(attachments[0]).not.toHaveProperty('file_id');
+    expect(normalized.meta).toMatchObject({ turnId: 'turn_1', answerKind: 'final' });
+    expect(normalized.meta?.attachments).toEqual([{
+      file_ref: 'sf_1',
+      filename: 'report.pdf',
+      content_type: 'application/pdf',
+      size: 10,
+      owner_role: 'assistant',
+      direction: 'outbound',
+      state: 'available',
+      message_ref: 'turn_1',
+      message_ref_kind: 'turn',
+    }]);
   });
 
   it('preserves payload.meta.chat_title in ChatMessageViewModel.meta and does not render it as content', () => {

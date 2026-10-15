@@ -1,3 +1,4 @@
+import { pendingAttachments } from './attachments.js';
 import {
   createChatError,
   errorFromUnknown,
@@ -781,7 +782,7 @@ export function createChatController(options: ChatControllerOptions): ChatContro
         retryable: false,
         meta: {
           ...(message.meta ?? {}),
-          ...(message.attachments ? { attachments: message.attachments } : {}),
+          ...(message.attachments ? { attachments: pendingAttachments(message.attachments) } : {}),
           client_msg_id: clientMsgId,
           timestamp_source: 'client',
         },

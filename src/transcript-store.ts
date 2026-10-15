@@ -1,3 +1,4 @@
+import { mergeAttachments, mergeMessageMeta, projectViewAttachments } from './attachments.js';
 import { createChatError } from './errors.js';
 import { normalizeCortexMessage } from './normalize.js';
 import type {
@@ -45,7 +46,9 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
   }
 
   function createOwnedMessage(message: ChatMessageViewModel): ChatMessageViewModel {
-    return freezeOwnedValue(cloneMessage(message));
+    // Every message entering the store (ingested, local, restored) holds only
+    // public attachments that belong to it.
+    return freezeOwnedValue(projectViewAttachments(cloneMessage(message)));
   }
 
   const transcript = (options.initialTranscript ?? []).map(createOwnedMessage);
@@ -154,14 +157,40 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
       : undefined;
   }
 
+  // Only a message an earlier echo already confirmed may absorb a replayed
+  // echo; other user messages keep their ownership.
+  function findEchoConfirmedUserMessageIndex(clientMsgId: string | undefined): number | undefined {
+    if (!clientMsgId) return undefined;
+    const index = indexByClientMsgId.get(clientMsgId);
+    const message = index === undefined ? undefined : transcript[index];
+    return message
+      && message.role === 'user'
+      && message.clientMsgId === clientMsgId
+      && message.deliveryStatus === 'processed'
+      && (message.type === 'chat::echo' || message.meta?.['echo_type'] === 'chat::echo')
+      ? index
+      : undefined;
+  }
+
+  function mergeRepeatedUserEcho(
+    existing: ChatMessageViewModel,
+    normalized: ChatMessageViewModel,
+  ): ChatMessageViewModel {
+    return {
+      ...existing,
+      seq: existing.seq ?? normalized.seq ?? null,
+      ts: existing.ts ?? normalized.ts ?? null,
+      meta: mergeMessageMeta(existing.meta, normalized.meta),
+    };
+  }
+
   function reconcileOptimisticUserMessage(
     existing: ChatMessageViewModel,
     normalized: ChatMessageViewModel,
   ): ChatMessageViewModel {
     const hasServerTs = normalized.ts !== null && normalized.ts !== undefined;
     const nextMeta: Record<string, unknown> = {
-      ...(existing.meta ?? {}),
-      ...(normalized.meta ?? {}),
+      ...mergeMessageMeta(existing.meta, normalized.meta),
       timestamp_source: hasServerTs ? 'server' : existing.meta?.['timestamp_source'],
       echo_seq: normalized.seq ?? existing.meta?.['echo_seq'],
       echo_type: 'chat::echo',
@@ -270,6 +299,13 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
           return updateMessage(optimisticIndex, reconcileOptimisticUserMessage(existing, normalized));
         }
 
+        // A replayed echo (resync, reload) of a message already in the
+        // transcript updates it instead of appending a second copy.
+        const processedIndex = findEchoConfirmedUserMessageIndex(normalized.clientMsgId);
+        if (processedIndex !== undefined) {
+          return updateMessage(processedIndex, mergeRepeatedUserEcho(transcript[processedIndex], normalized));
+        }
+
         return addMessage({
           ...normalized,
           role: 'user',
@@ -290,10 +326,7 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
           content: typeof existing.content === 'string' && typeof normalized.content === 'string'
             ? `${existing.content}${normalized.content}`
             : normalized.content,
-          meta: {
-            ...(existing.meta ?? {}),
-            ...(normalized.meta ?? {}),
-          },
+          meta: mergeMessageMeta(existing.meta, normalized.meta),
         };
         return updateMessage(existingIndex, nextMessage);
       }
@@ -308,16 +341,16 @@ export function createTranscriptStore(options: TranscriptStoreOptions = {}): Tra
           content: normalized.content,
           status: 'final',
           ts: normalized.ts,
-          meta: {
-            ...(existing.meta ?? {}),
-            ...(normalized.meta ?? {}),
-          },
+          meta: mergeMessageMeta(existing.meta, normalized.meta),
         };
         return updateMessage(existingIndex, nextMessage);
       }
 
       if (existingIndex !== undefined) {
-        return updateMessage(existingIndex, normalized);
+        const attachments = mergeAttachments(transcript[existingIndex].meta?.['attachments'], normalized.meta?.['attachments']);
+        return updateMessage(existingIndex, attachments.length > 0
+          ? { ...normalized, meta: { ...(normalized.meta ?? {}), attachments } }
+          : normalized);
       }
 
       return addMessage(normalized);

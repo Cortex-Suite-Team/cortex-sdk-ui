@@ -17,6 +17,7 @@ export { TRANSCRIPT_SCHEMA_VERSION } from './types.js';
 
 export type {
   ChatActor,
+  ChatAttachment,
   ChatActorKind,
   ChatController,
   ChatControllerEvent,

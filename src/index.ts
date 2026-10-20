@@ -1,4 +1,6 @@
 export { createChatController } from './chat-controller.js';
+export { createHumanAssistanceController } from './human-assistance-controller.js';
+export type { HumanAssistanceControllerOptions } from './human-assistance-controller.js';
 export {
   renderAssistantMarkdown,
   renderChatMessageContent,
@@ -16,6 +18,14 @@ export { ControllerError } from './errors.js';
 export { TRANSCRIPT_SCHEMA_VERSION } from './types.js';
 
 export type {
+  HumanAssistanceCard,
+  HumanAssistanceCardStatus,
+  HumanAssistanceClientLike,
+  HumanAssistanceController,
+  HumanAssistanceNotification,
+  HumanAssistanceRequest,
+  HumanAssistanceStatus,
+  ReplyHumanAssistanceOptions,
   ChatActor,
   ChatAttachment,
   ChatActorKind,

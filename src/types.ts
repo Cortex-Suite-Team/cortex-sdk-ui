@@ -72,6 +72,71 @@ export interface QuestionState {
   turn_id?: string | null;
 }
 
+/** Mirrors the accepted native JS SDK HA surface; no chat or escalation transport is involved. */
+export interface HumanAssistanceRequest {
+  version: 1;
+  request_id: string;
+  question: string;
+  options: QuestionOption[];
+  allow_text: boolean;
+  deadline_at: string;
+  status: 'pending';
+}
+
+export interface HumanAssistanceStatus {
+  version: 1;
+  request_id: string;
+  status: 'reply_accepted' | 'reply_rejected' | 'resolved' | 'expired' | 'revoked';
+  client_reply_id?: string;
+  reason?: 'unauthorized' | 'duplicate' | 'invalid_answer' | 'late';
+}
+
+export type HumanAssistanceNotification =
+  | { type: 'human_assistance::request'; payload: HumanAssistanceRequest }
+  | { type: 'human_assistance::status'; payload: HumanAssistanceStatus };
+
+export interface ReplyHumanAssistanceOptions {
+  requestId: string;
+  clientReplyId: string;
+  action: 'answer' | 'refuse';
+  optionId?: string;
+  text?: string;
+}
+
+export interface HumanAssistanceClientLike {
+  readonly humanAssistanceRequests: HumanAssistanceRequest[];
+  onHumanAssistance(handler: (event: HumanAssistanceNotification) => void): () => void;
+  replyHumanAssistance(options: ReplyHumanAssistanceOptions): Promise<void>;
+}
+
+export type HumanAssistanceCardStatus =
+  | 'pending' | 'sent' | 'accepted' | 'rejected' | 'resolved' | 'expired' | 'revoked';
+
+export interface HumanAssistanceCard {
+  request: HumanAssistanceRequest;
+  /** Existing QuestionField representation, adapted from options and allow_text. */
+  fields: QuestionField[];
+  optionId: string | null;
+  text: string;
+  status: HumanAssistanceCardStatus;
+  clientReplyId: string | null;
+  reason?: HumanAssistanceStatus['reason'];
+  error?: string;
+}
+
+export interface HumanAssistanceController {
+  getCards(): HumanAssistanceCard[];
+  subscribe(listener: (cards: HumanAssistanceCard[]) => void): () => void;
+  sync(): void;
+  selectOption(requestId: string, optionId: string | null): void;
+  setText(requestId: string, text: string): void;
+  submit(requestId: string): Promise<void>;
+  refuse(requestId: string): Promise<void>;
+  retry(requestId: string): Promise<void>;
+  reset(): void;
+  destroy(): void;
+}
+
 export interface CortexClientLike {
   connect(): Promise<void>;
   disconnect?(): Promise<void>;

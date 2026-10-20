@@ -205,6 +205,34 @@ Free replies use text content and do not include `selected`:
 }
 ```
 
+## Human Assistance responder cards (headless)
+
+`createHumanAssistanceController({ client })` consumes the native JS SDK's
+`onHumanAssistance` events and `humanAssistanceRequests` snapshot. It exposes
+`getCards()` and `subscribe()` for a renderer, plus `selectOption()`, `setText()`,
+`submit()`, `refuse()`, and `retry()` per `request_id`. Each card includes
+`QuestionField` entries for the configured choice and/or text controls. A mixed
+card permits either field or both. The controller sends only through
+`replyHumanAssistance()`; it never adds a chat message or changes the active DW
+session. `reply_accepted` is an acknowledgement; `resolved` is the terminal
+outcome.
+
+```ts
+const ha = createHumanAssistanceController({ client });
+const unsubscribe = ha.subscribe((cards) => renderHumanAssistanceCards(cards));
+ha.selectOption(requestId, 'approve');
+ha.setText(requestId, 'Reason for the choice');
+await ha.submit(requestId);
+// On an ambiguous send failure, ha.retry(requestId) resends the same reply ID and payload.
+// On an explicit SDK disconnect, call ha.reset(); on teardown, unsubscribe(); ha.destroy().
+```
+
+The existing DOM question card is in `cortex-chat-widget/src/renderer.ts` and
+submits through `cortex-chat-widget/src/chat-widget.ts`. That host needs its own
+reviewed HA visual integration; the headless package does not render a card.
+Physical Edge/Runtime routing and sequenced reconnect/resync remain separate
+qualification gates.
+
 ## Control Plane Reuse
 
 Control Plane can reuse transcript and escalation behavior while keeping operator permissions server-side.

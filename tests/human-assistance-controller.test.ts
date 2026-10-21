@@ -30,7 +30,7 @@ function fixture() {
       client.humanAssistanceRequests.push(value);
       for (const handler of handlers) handler({ type: 'human_assistance::request', payload: value });
     },
-    status(requestId: string, status: 'reply_accepted' | 'reply_rejected' | 'resolved' | 'expired' | 'revoked',
+    status(requestId: string, status: 'reply_accepted' | 'reply_rejected' | 'resolved' | 'expired' | 'revoked' | 'delivery_failed',
       extra: { client_reply_id?: string; reason?: 'unauthorized' | 'duplicate' | 'invalid_answer' | 'late' } = {}) {
       for (const handler of handlers) handler({ type: 'human_assistance::status',
         payload: { version: 1, request_id: requestId, status, ...extra } });
@@ -117,9 +117,22 @@ describe('headless Human Assistance cards', () => {
     f.controller.destroy();
   });
 
+  it('keeps delivery failure terminal through duplicate status and request replay', () => {
+    const f = fixture();
+    f.request(request('delivery-failed'));
+    f.status('delivery-failed', 'delivery_failed');
+    expect(f.controller.getCards()[0]?.status).toBe('delivery_failed');
+    expect(() => f.controller.refuse('delivery-failed')).toThrow();
+    f.status('delivery-failed', 'delivery_failed');
+    f.request(request('delivery-failed'));
+    expect(f.controller.getCards()).toHaveLength(1);
+    expect(f.controller.getCards()[0]?.status).toBe('delivery_failed');
+    f.controller.destroy();
+  });
+
   it('suppresses terminal-first replay, expired submissions, and over-capacity unknown requests', () => {
     const f = fixture();
-    for (const terminal of ['expired', 'revoked', 'resolved'] as const) {
+    for (const terminal of ['expired', 'revoked', 'resolved', 'delivery_failed'] as const) {
       f.status(`closed-${terminal}`, terminal);
       f.request(request(`closed-${terminal}`));
     }

@@ -86,7 +86,7 @@ export interface HumanAssistanceRequest {
 export interface HumanAssistanceStatus {
   version: 1;
   request_id: string;
-  status: 'reply_accepted' | 'reply_rejected' | 'resolved' | 'expired' | 'revoked';
+  status: 'reply_accepted' | 'reply_rejected' | 'resolved' | 'expired' | 'revoked' | 'delivery_failed';
   client_reply_id?: string;
   reason?: 'unauthorized' | 'duplicate' | 'invalid_answer' | 'late';
 }
@@ -110,7 +110,7 @@ export interface HumanAssistanceClientLike {
 }
 
 export type HumanAssistanceCardStatus =
-  | 'pending' | 'sent' | 'accepted' | 'rejected' | 'resolved' | 'expired' | 'revoked';
+  | 'pending' | 'sent' | 'accepted' | 'rejected' | 'resolved' | 'expired' | 'revoked' | 'delivery_failed';
 
 export interface HumanAssistanceCard {
   request: HumanAssistanceRequest;

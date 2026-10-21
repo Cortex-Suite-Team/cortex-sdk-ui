@@ -6,7 +6,7 @@ import type {
 } from './types.js';
 
 const MAX_REQUESTS = 64;
-const TERMINAL = new Set(['resolved', 'expired', 'revoked']);
+const TERMINAL = new Set(['resolved', 'expired', 'revoked', 'delivery_failed']);
 
 interface Entry {
   card: HumanAssistanceCard;
@@ -89,7 +89,8 @@ export function createHumanAssistanceController(options: HumanAssistanceControll
       return;
     }
     if (TERMINAL.has(entry.card.status)) return;
-    if (status.status === 'resolved' || status.status === 'expired' || status.status === 'revoked') {
+    if (status.status === 'resolved' || status.status === 'expired'
+        || status.status === 'revoked' || status.status === 'delivery_failed') {
       entry.card.status = status.status;
       entry.card.error = undefined;
       emit();

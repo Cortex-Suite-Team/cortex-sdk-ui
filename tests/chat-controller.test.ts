@@ -456,7 +456,7 @@ describe('sdk-ui controllers', () => {
     expect(clientMsgId).toBeTruthy();
 
     client.emit(createMessage('chat::echo', {
-      content: 'Test',
+      content: ['Test'],
       role: 'user',
       meta: {
         client_msg_id: clientMsgId,
@@ -484,7 +484,7 @@ describe('sdk-ui controllers', () => {
     await controller.sendMessage({ content: 'Test' });
 
     client.emit(createMessage('chat::echo', {
-      content: 'Test',
+      content: ['Test'],
       role: 'user',
       meta: {
         client_msg_id: 'different-client-msg-id',
@@ -506,7 +506,7 @@ describe('sdk-ui controllers', () => {
 
     const clientMsgId = controller.getState().transcript[0].clientMsgId;
     client.emit(createMessage('chat::echo', {
-      content: 'Operator response',
+      content: ['Operator response'],
       role: 'operator',
       meta: {
         client_msg_id: clientMsgId,
@@ -521,7 +521,7 @@ describe('sdk-ui controllers', () => {
     });
     expect(transcript[1]).toMatchObject({
       role: 'operator',
-      content: 'Operator response',
+      content: ['Operator response'],
     });
   });
 
@@ -541,7 +541,7 @@ describe('sdk-ui controllers', () => {
       session_id: 'sess_test',
       seq: 9,
       payload: {
-        content: 'No ts',
+        content: ['No ts'],
         role: 'user',
         meta: {
           client_msg_id: clientMsgId,
@@ -566,7 +566,7 @@ describe('sdk-ui controllers', () => {
     expect(controller.getState().input.locked).toBe(true);
 
     client.emit(createMessage('chat::echo', {
-      content: 'Still waiting',
+      content: ['Still waiting'],
       role: 'user',
       meta: {
         client_msg_id: controller.getState().transcript[0].clientMsgId,
@@ -602,14 +602,14 @@ describe('sdk-ui controllers', () => {
     const secondClientMsgId = beforeEcho[1].clientMsgId;
 
     client.emit(createMessage('chat::echo', {
-      content: 'Same text',
+      content: ['Same text'],
       role: 'user',
       meta: {
         client_msg_id: secondClientMsgId,
       },
     }, 11));
     client.emit(createMessage('chat::echo', {
-      content: 'Same text',
+      content: ['Same text'],
       role: 'user',
       meta: {
         client_msg_id: firstClientMsgId,

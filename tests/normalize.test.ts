@@ -16,38 +16,35 @@ describe('normalizeCortexMessage', () => {
     });
   });
 
-  it('normalizes chat::echo as a user message and prefers content over payload.message', () => {
+  it('normalizes canonical chat::echo as a user message', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::echo', {
-      content: 'Echo text',
+      content: ['Echo text'],
       role: 'user',
       meta: {
         client_msg_id: 'msg_1',
-      },
-      message: {
-        text: 'ignored',
       },
     }));
 
     expect(normalized).toMatchObject({
       type: 'chat::echo',
       role: 'user',
-      content: 'Echo text',
+      content: ['Echo text'],
       status: 'final',
       clientMsgId: 'msg_1',
     });
   });
 
-  it('normalizes chat::forward and chat::hail visible content from payload.message.text', () => {
+  it('normalizes canonical chat::forward and chat::hail content', () => {
     const forward = normalizeCortexMessage(createMessage('chat::forward', {
       role: 'user',
-      message: { text: 'Forwarded text' },
+      content: ['Forwarded text'],
       meta: {
         actor: { name: 'Bubble Actor' },
       },
     }));
     const hail = normalizeCortexMessage(createMessage('chat::hail', {
       role: 'assistant',
-      message: { text: 'Proactive hello' },
+      content: ['Proactive hello'],
       meta: {
         actor: { name: 'Bubble Actor' },
       },
@@ -56,13 +53,19 @@ describe('normalizeCortexMessage', () => {
     expect(forward).toMatchObject({
       type: 'chat::forward',
       role: 'user',
-      content: 'Forwarded text',
+      content: ['Forwarded text'],
     });
     expect(hail).toMatchObject({
       type: 'chat::hail',
       role: 'assistant',
-      content: 'Proactive hello',
+      content: ['Proactive hello'],
     });
+  });
+
+  it.each(['chat::echo', 'chat::forward', 'chat::hail'])('%s rejects legacy or malformed text', (type) => {
+    expect(() => normalizeCortexMessage(createMessage(type, { message: { text: 'old' } }))).toThrow(TypeError);
+    expect(() => normalizeCortexMessage(createMessage(type, { content: ['new'], message: 'old' }))).toThrow(TypeError);
+    expect(() => normalizeCortexMessage(createMessage(type, { content: 'text' }))).toThrow(TypeError);
   });
 
   it('preserves unknown message types without crashing', () => {
@@ -384,7 +387,7 @@ describe('extractActor — actor field on ChatMessageViewModel', () => {
 
   it('transport alias "human_operator" normalizes to canonical actor kind "operator"', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::echo', {
-      content: 'Support reply',
+      content: ['Support reply'],
       role: 'operator',
       meta: {
         actor: { kind: 'human_operator', name: 'Support' },
@@ -396,7 +399,7 @@ describe('extractActor — actor field on ChatMessageViewModel', () => {
 
   it('chat::echo with client_msg_id in payload.meta sets normalized clientMsgId', () => {
     const normalized = normalizeCortexMessage(createMessage('chat::echo', {
-      content: 'Hello',
+      content: ['Hello'],
       role: 'user',
       meta: {
         client_msg_id: 'cmsg_abc123',

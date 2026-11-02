@@ -35,17 +35,12 @@ function getClientMsgId(meta: Record<string, unknown>): string | undefined {
   return asNonEmptyString(meta['client_msg_id']) ?? undefined;
 }
 
-function resolveVisibleContent(payload: Record<string, unknown>): unknown {
-  if (payload['content'] !== undefined) {
-    return payload['content'];
+function canonicalChatContent(payload: Record<string, unknown>): string[] {
+  const content = payload['content'];
+  if (!Array.isArray(content) || !content.every((part) => typeof part === 'string') || 'message' in payload) {
+    throw new TypeError('Text chat transport requires payload.content: string[] without payload.message.');
   }
-
-  const message = payload['message'];
-  if (isRecord(message) && message['text'] !== undefined) {
-    return message['text'];
-  }
-
-  return message ?? null;
+  return content;
 }
 
 function withoutInternalRefs(meta: Record<string, unknown>): Record<string, unknown> {
@@ -134,7 +129,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         seq: message.seq ?? null,
         type: message.type,
         role: mapRole(payload['role'], 'user'),
-        content: resolveVisibleContent(payload),
+        content: canonicalChatContent(payload),
         status: 'final',
         ts: message.ts ?? null,
         actor: extractActor(message, payload),
@@ -190,7 +185,7 @@ export function normalizeCortexMessage(message: CortexTransportMessage): ChatMes
         seq: message.seq ?? null,
         type: message.type,
         role: mapRole(payload['role'], 'assistant'),
-        content: resolveVisibleContent(payload),
+        content: canonicalChatContent(payload),
         status: 'final',
         ts: message.ts ?? null,
         actor: extractActor(message, payload),

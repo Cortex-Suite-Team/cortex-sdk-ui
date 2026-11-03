@@ -1552,7 +1552,7 @@
       "name": "forward_owns_no_files",
       "type": "chat::forward",
       "payload": {
-        "content": "fwd",
+        "content": ["fwd"],
         "role": "assistant",
         "turn": 7,
         "meta": {

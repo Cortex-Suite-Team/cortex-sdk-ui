@@ -109,7 +109,7 @@ describe('chat-controller — system::state handling', () => {
 
     client.emit(createMessage('system::opened', { status: 'initializing' }));
     client.emit(createMessage('chat::echo', {
-      content: 'User echo',
+      content: ['User echo'],
       role: 'user',
       meta: {
         actor: {
@@ -139,7 +139,7 @@ describe('chat-controller — system::state handling', () => {
     client.emit(createMessage('system::opened', { status: 'initializing' }));
     client.emit(createMessage('chat::hail', {
       role: 'assistant',
-      message: { text: 'Hello there' },
+      content: ['Hello there'],
       meta: {
         actor: {
           name: 'Different Worker',

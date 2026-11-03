@@ -153,7 +153,7 @@ describe('renderChatMessageContent', () => {
 
   it('does not mutate reconciliation fields on the source message', () => {
     const message = normalizeCortexMessage(createMessage('chat::echo', {
-      content: 'Hello',
+      content: ['Hello'],
       role: 'user',
       meta: {
         client_msg_id: 'msg_1',

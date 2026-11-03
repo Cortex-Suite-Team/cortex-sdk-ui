@@ -229,7 +229,7 @@ describe('createTranscriptStore', () => {
     });
 
     const result = store.ingest(createMessage('chat::echo', {
-      content: 'Hello',
+      content: ['Hello'],
       role: 'user',
       meta: {
         client_msg_id: 'msg_1',
@@ -282,7 +282,7 @@ describe('createTranscriptStore', () => {
       },
       payload: {
         role: 'user',
-        content: 'Envelope meta',
+        content: ['Envelope meta'],
       },
     });
 
@@ -327,7 +327,7 @@ describe('createTranscriptStore', () => {
       ts: '2026-05-14T18:35:10.000Z',
       payload: {
         role: 'user',
-        content: 'Тестовое сообщение',
+        content: ['Тестовое сообщение'],
         meta: {
           client_msg_id: 'abc',
         },
@@ -387,7 +387,7 @@ describe('createTranscriptStore', () => {
       session_id: 'sess_test',
       seq: 6,
       payload: {
-        content: 'Hello',
+        content: ['Hello'],
         role: 'user',
         meta: {
           client_msg_id: 'msg_2',
@@ -407,7 +407,7 @@ describe('createTranscriptStore', () => {
     const store = createTranscriptStore();
 
     const result = store.ingest(createMessage('chat::echo', {
-      content: 'Hello from runtime',
+      content: ['Hello from runtime'],
       role: 'user',
       meta: {
         client_msg_id: 'msg_unmatched',
@@ -453,7 +453,7 @@ describe('createTranscriptStore', () => {
       ts: '2026-05-14T18:35:02.000Z',
       payload: {
         role: 'user',
-        content: 'Same seq',
+        content: ['Same seq'],
       },
     });
 
@@ -487,7 +487,7 @@ describe('createTranscriptStore', () => {
     });
 
     const result = store.ingest(createMessage('chat::echo', {
-      content: 'Operator text',
+      content: ['Operator text'],
       role: 'operator',
       meta: {
         client_msg_id: 'msg_operator',
@@ -504,7 +504,7 @@ describe('createTranscriptStore', () => {
     });
     expect(snapshot[1]).toMatchObject({
       role: 'operator',
-      content: 'Operator text',
+      content: ['Operator text'],
     });
   });
 
@@ -526,7 +526,7 @@ describe('createTranscriptStore', () => {
     });
 
     const result = store.ingest(createMessage('chat::echo', {
-      content: 'Historical user message',
+      content: ['Historical user message'],
       role: 'user',
       meta: {
         client_msg_id: 'historic',
@@ -564,14 +564,14 @@ describe('createTranscriptStore', () => {
     }
 
     store.ingest(createMessage('chat::echo', {
-      content: 'Test',
+      content: ['Test'],
       role: 'user',
       meta: {
         client_msg_id: 'same_2',
       },
     }, 24));
     store.ingest(createMessage('chat::echo', {
-      content: 'Test',
+      content: ['Test'],
       role: 'user',
       meta: {
         client_msg_id: 'same_1',

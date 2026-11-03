@@ -29,7 +29,7 @@ describe('chat-controller — escalation banner clearing', () => {
   it('chat::echo role=user does NOT clear banner', async () => {
     const { client, controller } = await setupWithPendingEscalation();
 
-    client.emit(createMessage('chat::echo', { role: 'user', content: 'Hello' }, 2));
+    client.emit(createMessage('chat::echo', { role: 'user', content: ['Hello'] }, 2));
 
     expect(controller.getState().escalation?.status).toBe('pending');
   });
@@ -45,7 +45,7 @@ describe('chat-controller — escalation banner clearing', () => {
   it('chat::echo role=operator clears banner', async () => {
     const { client, controller } = await setupWithPendingEscalation();
 
-    client.emit(createMessage('chat::echo', { role: 'operator', content: 'Operator replied' }, 2));
+    client.emit(createMessage('chat::echo', { role: 'operator', content: ['Operator replied'] }, 2));
 
     expect(controller.getState().escalation).toBeNull();
   });
@@ -53,7 +53,7 @@ describe('chat-controller — escalation banner clearing', () => {
   it('chat::echo role=assistant clears banner', async () => {
     const { client, controller } = await setupWithPendingEscalation();
 
-    client.emit(createMessage('chat::echo', { role: 'assistant', content: 'Worker replied' }, 2));
+    client.emit(createMessage('chat::echo', { role: 'assistant', content: ['Worker replied'] }, 2));
 
     expect(controller.getState().escalation).toBeNull();
   });

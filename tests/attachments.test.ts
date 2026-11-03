@@ -230,7 +230,7 @@ describe('ChatController lifecycle: send -> echo -> answer -> persist -> restore
     const clientMsgId = sent.clientMsgId;
     const bound = INPUTS.map((d) => ({ ...d, message_ref: clientMsgId }));
     client.emit(createMessage('chat::echo', {
-      content: 'Compare the attached revenue files.',
+      content: ['Compare the attached revenue files.'],
       role: 'user',
       meta: { client_msg_id: clientMsgId, attachments: bound.map((d, i) => ({ ...d, file_id: `fi_${i}` })) },
     }, 10));
@@ -258,7 +258,7 @@ describe('ChatController lifecycle: send -> echo -> answer -> persist -> restore
     const reloaded = createChatController({ client: reloadedClient, transcriptPersistence: persistence });
     await reloaded.connect();
     reloadedClient.emit(createMessage('chat::echo', {
-      content: 'Compare the attached revenue files.', role: 'user', meta: { client_msg_id: clientMsgId, attachments: bound },
+      content: ['Compare the attached revenue files.'], role: 'user', meta: { client_msg_id: clientMsgId, attachments: bound },
     }, 10));
     reloadedClient.emit(answer(OUTPUTS, 20));
     reloadedClient.emit(answer(OUTPUTS, 20));

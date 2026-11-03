@@ -24,7 +24,10 @@ function fields(request: HumanAssistanceRequest): QuestionField[] {
   const result: QuestionField[] = [];
   if (request.options.length) {
     result.push({ key: 'option_id', label: request.question, type: 'select',
-      required: !request.allow_text, options: request.options.map((option) => ({ ...option })) });
+      required: !request.allow_text, options: [
+        ...request.options.map((option) => ({ ...option })),
+        ...(request.allow_text ? [{ id: '', label: 'Other…' }] : []),
+      ] });
   }
   if (request.allow_text) {
     result.push({ key: 'text', label: request.question, type: 'text',
@@ -162,12 +165,13 @@ export function createHumanAssistanceController(options: HumanAssistanceControll
     sync() { if (!destroyed) for (const request of options.client.humanAssistanceRequests) ingestRequest(request); },
     selectOption(requestId, optionId) {
       const entry = pending(requestId);
-      if (optionId !== null && !entry.card.request.options.some((option) => option.id === optionId)) {
+      const selected = optionId === '' && entry.card.request.allow_text ? null : optionId;
+      if (selected !== null && !entry.card.request.options.some((option) => option.id === selected)) {
         entry.card.error = 'Unknown Human Assistance option.';
         emit();
         throw createControllerError('ha_option_invalid', 'Unknown Human Assistance option.', 'human_assistance');
       }
-      entry.card.optionId = optionId;
+      entry.card.optionId = selected;
       entry.card.error = undefined;
       emit();
     },

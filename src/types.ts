@@ -31,7 +31,6 @@ export interface CortexTransportMessage {
   payload?: Record<string, unknown>;
   meta?: Record<string, unknown>;
   ts?: string;
-  [key: string]: unknown;
 }
 
 export interface ReplyEscalationRequest {
@@ -40,7 +39,6 @@ export interface ReplyEscalationRequest {
   action: EscalationAction;
   content?: EscalationReplyContent;
   meta?: Record<string, unknown>;
-  [key: string]: unknown;
 }
 
 export interface QuestionOption {
@@ -148,7 +146,8 @@ export interface CortexClientLike {
   sessionMeta?: Record<string, unknown> | null;
   sessionContext?: {
     sessionId: string;
-    identity?: Record<string, unknown> | null;
+    /** Identity is opaque to the UI; native SDK contexts need no index signature. */
+    identity?: object | null;
     correspondent?: {
       kind?: string | null;
       id?: string | null;

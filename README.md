@@ -25,8 +25,14 @@ This package does not include:
 ## Install
 
 ```bash
-npm install @cortex-suite/sdk-ui
+npm install @cortex-suite/sdk@1.1.22 @cortex-suite/sdk-ui@0.1.1
 ```
+
+## Release 0.1.1
+
+This release includes the native Human Assistance controller, canonical `content[]`
+transcripts, session-file attachments, and question handling from the November source
+baseline. The client integration target is `@cortex-suite/sdk@1.1.22`.
 
 ## Use With `@cortex-suite/sdk`
 
